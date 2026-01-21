@@ -1,0 +1,21 @@
+
+{
+  "name": "deepseek-skills-mcp",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "main": "mcp-server.js",
+  "scripts": {
+    "start": "node mcp-server.js",
+    "proxy": "node proxy-server.js",
+    "dev": "concurrently \"npm run start\" \"npm run proxy\""
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "axios": "^1.13.2",
+    "dotenv": "^17.2.3",
+    "mathjs": "^15.1.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

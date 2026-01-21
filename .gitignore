@@ -1,0 +1,64 @@
+# ======================
+# Node.js
+# ======================
+
+
+
+
+
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ======================
+# Environment variables
+# ======================
+.env
+.env.*
+!.env.example
+
+# ======================
+# Build / Dist
+# ======================
+dist/
+build/
+out/
+
+# ======================
+# Logs
+# ======================
+logs/
+*.log
+
+# ======================
+# OS / Editor
+# ======================
+.DS_Store
+Thumbs.db
+.vscode/
+!.vscode/extensions.json
+
+# ======================
+# Python (if used)
+# ======================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# ======================
+# Temporary / Cache
+# ======================
+.tmp/
+.temp/
+.cache/
+
+# ======================
+# Local data (optional)
+# ======================
+# 如果 scores.csv 是测试数据，想提交就删掉这一行
+# scores.csv

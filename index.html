@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP 智能工具助手</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <header class="header">
+            <div class="logo">
+                <svg viewBox="0 0 24 24" width="32" height="32">
+                    <path fill="currentColor" d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z"/>
+                </svg>
+                <h1>MCP 智能助手</h1>
+            </div>
+            <div class="status">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">连接中...</span>
+            </div>
+        </header>
+
+        <div class="main">
+            <!-- 侧边栏 - 工具列表 -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h2>可用工具</h2>
+                    <span class="tool-count" id="toolCount">0</span>
+                </div>
+                <div class="tools-grid" id="toolsList">
+                    <div class="loading">加载中...</div>
+                </div>
+                
+                <div class="sidebar-footer">
+                    <div class="info-card">
+                        <h3>💡 使用提示</h3>
+                        <ul>
+                            <li>用自然语言描述任务</li>
+                            <li>AI 自动选择工具</li>
+                            <li>查看执行结果</li>
+                        </ul>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- 主内容区 -->
+            <main class="content">
+                <!-- 对话区域 -->
+                <div class="chat-area" id="chatArea">
+                    <div class="welcome">
+                        <svg viewBox="0 0 24 24" width="64" height="64">
+                            <path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+                        </svg>
+                        <h2>你好！我是 MCP 智能助手</h2>
+                        <p>我可以帮你执行各种任务，比如：</p>
+                        <div class="example-queries">
+                            <button class="example-btn" data-query="计算 sqrt(144) * 2 + 10">📊 计算数学表达式</button>
+                            <button class="example-btn" data-query="读取 demo.txt 文件内容">📄 读取文件</button>
+                            <button class="example-btn" data-query="列出当前目录的文件">📁 浏览文件</button>
+                            <button class="example-btn" data-query="获取北京时间">🕐 查询时间</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 输入区域 -->
+                <div class="input-area">
+                    <div class="input-wrapper">
+                        <textarea 
+                            id="userInput" 
+                            placeholder="描述你想做的事情，比如：帮我计算 2+2，或者读取 demo.txt 文件..."
+                            rows="1"
+                        ></textarea>
+                        <button id="sendBtn" class="send-btn" disabled>
+                            <svg viewBox="0 0 24 24" width="20" height="20">
+                                <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="input-hints">
+                        <span>💡 试试：你有什么工具？ | 帮我计算一下 | 读取文件内容</span>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
