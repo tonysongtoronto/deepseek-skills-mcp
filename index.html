@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MCP 智能工具助手</title>
+    <title>AI驱动的 MCP 智能助手</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -14,7 +14,8 @@
                 <svg viewBox="0 0 24 24" width="32" height="32">
                     <path fill="currentColor" d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z"/>
                 </svg>
-                <h1>MCP 智能助手</h1>
+                <h1>AI 智能助手</h1>
+                <span class="ai-badge">🤖 AI Powered</span>
             </div>
             <div class="status">
                 <span class="status-dot" id="statusDot"></span>
@@ -34,12 +35,23 @@
                 </div>
                 
                 <div class="sidebar-footer">
-                    <div class="info-card">
-                        <h3>💡 使用提示</h3>
+                    <div class="info-card ai-feature">
+                        <h3>🤖 AI 能力</h3>
                         <ul>
-                            <li>用自然语言描述任务</li>
-                            <li>AI 自动选择工具</li>
-                            <li>查看执行结果</li>
+                            <li>智能理解你的需求</li>
+                            <li>自动选择合适工具</li>
+                            <li>规划多步骤任务</li>
+                            <li>用人话解释结果</li>
+                            <li>支持多轮对话</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="info-card">
+                        <h3>💡 使用技巧</h3>
+                        <ul>
+                            <li>像和朋友聊天一样说话</li>
+                            <li>可以追问更多细节</li>
+                            <li>支持复杂的任务链</li>
                         </ul>
                     </div>
                 </div>
@@ -50,16 +62,85 @@
                 <!-- 对话区域 -->
                 <div class="chat-area" id="chatArea">
                     <div class="welcome">
-                        <svg viewBox="0 0 24 24" width="64" height="64">
-                            <path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
-                        </svg>
-                        <h2>你好！我是 MCP 智能助手</h2>
-                        <p>我可以帮你执行各种任务，比如：</p>
-                        <div class="example-queries">
-                            <button class="example-btn" data-query="计算 sqrt(144) * 2 + 10">📊 计算数学表达式</button>
-                            <button class="example-btn" data-query="读取 demo.txt 文件内容">📄 读取文件</button>
-                            <button class="example-btn" data-query="列出当前目录的文件">📁 浏览文件</button>
-                            <button class="example-btn" data-query="获取北京时间">🕐 查询时间</button>
+                        <div class="welcome-icon">
+                            <svg viewBox="0 0 24 24" width="64" height="64">
+                                <path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+                            </svg>
+                            <div class="ai-glow"></div>
+                        </div>
+                        <h2>你好！我是 AI 智能助手 🤖</h2>
+                        <p>我不仅能理解你的需求，还能自动选择工具、规划任务步骤，并用自然语言解释结果</p>
+                        
+                        <div class="example-section">
+                            <h3>试试这些：</h3>
+                            <div class="example-queries">
+                                <button class="example-btn" data-query="你好，你能做什么？">
+                                    <span class="icon">👋</span>
+                                    <div>
+                                        <strong>打个招呼</strong>
+                                        <small>了解我的能力</small>
+                                    </div>
+                                </button>
+                                
+                                <button class="example-btn" data-query="帮我算一下 (123 + 456) * 2 - 100 等于多少">
+                                    <span class="icon">🔢</span>
+                                    <div>
+                                        <strong>数学计算</strong>
+                                        <small>复杂表达式</small>
+                                    </div>
+                                </button>
+                                
+                                <button class="example-btn" data-query="读取 demo.txt 文件，然后告诉我有多少字">
+                                    <span class="icon">📊</span>
+                                    <div>
+                                        <strong>多步骤任务</strong>
+                                        <small>读文件+统计</small>
+                                    </div>
+                                </button>
+                                
+                                <button class="example-btn" data-query="现在北京时间几点了？">
+                                    <span class="icon">🕐</span>
+                                    <div>
+                                        <strong>查询时间</strong>
+                                        <small>指定时区</small>
+                                    </div>
+                                </button>
+                                
+                                <button class="example-btn" data-query="列出当前目录下的所有文件">
+                                    <span class="icon">📁</span>
+                                    <div>
+                                        <strong>浏览文件</strong>
+                                        <small>查看目录</small>
+                                    </div>
+                                </button>
+                                
+                                <button class="example-btn" data-query="帮我写一个 hello.txt 文件，内容是：Hello, AI World!">
+                                    <span class="icon">✍️</span>
+                                    <div>
+                                        <strong>创建文件</strong>
+                                        <small>写入内容</small>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="features-highlight">
+                            <div class="feature">
+                                <span>🧠</span>
+                                <p>智能理解</p>
+                            </div>
+                            <div class="feature">
+                                <span>🔄</span>
+                                <p>自动规划</p>
+                            </div>
+                            <div class="feature">
+                                <span>💬</span>
+                                <p>对话式交互</p>
+                            </div>
+                            <div class="feature">
+                                <span>✨</span>
+                                <p>人性化解释</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -69,7 +150,7 @@
                     <div class="input-wrapper">
                         <textarea 
                             id="userInput" 
-                            placeholder="描述你想做的事情，比如：帮我计算 2+2，或者读取 demo.txt 文件..."
+                            placeholder="用自然语言描述你想做的事情，比如：帮我计算一下、读取某个文件并分析、创建一个文件..."
                             rows="1"
                         ></textarea>
                         <button id="sendBtn" class="send-btn" disabled>
@@ -79,7 +160,7 @@
                         </button>
                     </div>
                     <div class="input-hints">
-                        <span>💡 试试：你有什么工具？ | 帮我计算一下 | 读取文件内容</span>
+                        <span>💡 试试：你能帮我做什么？ | 帮我算一下 | 读取文件并分析 | 当前是什么时间</span>
                     </div>
                 </div>
             </main>

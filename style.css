@@ -10,6 +10,7 @@
     --success: #10b981;
     --danger: #ef4444;
     --warning: #f59e0b;
+    --ai-glow: #8b5cf6;
     --gray-50: #f9fafb;
     --gray-100: #f3f4f6;
     --gray-200: #e5e7eb;
@@ -66,6 +67,26 @@ body {
 .logo h1 {
     font-size: 24px;
     font-weight: 600;
+}
+
+.ai-badge {
+    background: rgba(255,255,255,0.2);
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    animation: pulse-glow 2s infinite;
+}
+
+@keyframes pulse-glow {
+    0%, 100% { 
+        background: rgba(255,255,255,0.2);
+        box-shadow: 0 0 0 rgba(139, 92, 246, 0);
+    }
+    50% { 
+        background: rgba(139, 92, 246, 0.3);
+        box-shadow: 0 0 20px rgba(139, 92, 246, 0.4);
+    }
 }
 
 .status {
@@ -157,11 +178,6 @@ body {
     transform: translateY(-2px);
 }
 
-.tool-card.active {
-    border-color: var(--primary);
-    background: #eef2ff;
-}
-
 .tool-name {
     font-weight: 600;
     color: var(--gray-900);
@@ -191,6 +207,12 @@ body {
     border: 1px solid var(--gray-200);
     border-radius: 8px;
     padding: 16px;
+    margin-bottom: 12px;
+}
+
+.info-card.ai-feature {
+    background: linear-gradient(135deg, #f3e7ff 0%, #e9d5ff 100%);
+    border-color: var(--ai-glow);
 }
 
 .info-card h3 {
@@ -237,15 +259,38 @@ body {
 /* 欢迎界面 */
 .welcome {
     text-align: center;
-    padding: 60px 20px;
-    max-width: 600px;
+    padding: 40px 20px;
+    max-width: 700px;
     margin: 0 auto;
 }
 
-.welcome svg {
-    color: var(--primary);
+.welcome-icon {
+    position: relative;
+    display: inline-block;
     margin-bottom: 20px;
-    opacity: 0.9;
+}
+
+.welcome-icon svg {
+    color: var(--primary);
+    position: relative;
+    z-index: 1;
+}
+
+.ai-glow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80px;
+    height: 80px;
+    background: radial-gradient(circle, var(--ai-glow) 0%, transparent 70%);
+    animation: glow-pulse 3s infinite;
+    opacity: 0.3;
+}
+
+@keyframes glow-pulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.3; }
+    50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.5; }
 }
 
 .welcome h2 {
@@ -258,6 +303,17 @@ body {
     color: var(--gray-600);
     margin-bottom: 30px;
     font-size: 16px;
+    line-height: 1.6;
+}
+
+.example-section {
+    margin-top: 30px;
+}
+
+.example-section h3 {
+    font-size: 18px;
+    margin-bottom: 16px;
+    color: var(--gray-700);
 }
 
 .example-queries {
@@ -268,22 +324,69 @@ body {
 }
 
 .example-btn {
-    background: var(--gray-50);
-    border: 1px solid var(--gray-200);
-    border-radius: 8px;
+    background: white;
+    border: 2px solid var(--gray-200);
+    border-radius: 12px;
     padding: 16px;
     cursor: pointer;
-    transition: all 0.2s;
-    font-size: 14px;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    gap: 12px;
     text-align: left;
-    color: var(--gray-700);
+}
+
+.example-btn .icon {
+    font-size: 28px;
+    flex-shrink: 0;
+}
+
+.example-btn div {
+    flex: 1;
+}
+
+.example-btn strong {
+    display: block;
+    color: var(--gray-900);
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.example-btn small {
+    color: var(--gray-600);
+    font-size: 12px;
 }
 
 .example-btn:hover {
     border-color: var(--primary);
     background: #eef2ff;
-    transform: translateY(-2px);
-    box-shadow: var(--shadow);
+    transform: translateY(-4px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.features-highlight {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    margin-top: 40px;
+    padding-top: 30px;
+    border-top: 1px solid var(--gray-200);
+}
+
+.feature {
+    text-align: center;
+}
+
+.feature span {
+    font-size: 32px;
+    display: block;
+    margin-bottom: 8px;
+}
+
+.feature p {
+    font-size: 13px;
+    color: var(--gray-600);
+    margin: 0;
 }
 
 /* 消息气泡 */
@@ -335,13 +438,26 @@ body {
 .message-content pre {
     background: rgba(0,0,0,0.05);
     padding: 12px;
-    border-radius: 6px;
+    border-radius: 8px;
     overflow-x: auto;
     margin-top: 8px;
     font-size: 13px;
+    font-family: 'Courier New', monospace;
 }
 
 .message.user .message-content pre {
+    background: rgba(255,255,255,0.2);
+}
+
+.message-content code {
+    background: rgba(0,0,0,0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: 'Courier New', monospace;
+}
+
+.message.user .message-content code {
     background: rgba(255,255,255,0.2);
 }
 
@@ -382,20 +498,6 @@ body {
     40% { transform: scale(1); }
 }
 
-/* 工具选择显示 */
-.tool-selection {
-    background: #fff7ed;
-    border: 1px solid #fed7aa;
-    border-radius: 8px;
-    padding: 12px;
-    margin-top: 8px;
-    font-size: 14px;
-}
-
-.tool-selection strong {
-    color: var(--warning);
-}
-
 /* 输入区域 */
 .input-area {
     border-top: 1px solid var(--gray-200);
@@ -411,12 +513,13 @@ body {
     border: 2px solid var(--gray-200);
     border-radius: var(--radius);
     padding: 4px;
-    transition: border-color 0.2s;
+    transition: all 0.3s;
 }
 
 .input-wrapper:focus-within {
     border-color: var(--primary);
     background: white;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 
 #userInput {
@@ -429,6 +532,11 @@ body {
     max-height: 200px;
     font-family: inherit;
     outline: none;
+    color: var(--gray-900);
+}
+
+#userInput::placeholder {
+    color: var(--gray-600);
 }
 
 .send-btn {
@@ -449,7 +557,7 @@ body {
 .send-btn:hover:not(:disabled) {
     background: var(--primary-dark);
     transform: translateY(-2px);
-    box-shadow: var(--shadow);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
 }
 
 .send-btn:disabled {
@@ -472,17 +580,6 @@ body {
     color: var(--gray-600);
 }
 
-/* 错误提示 */
-.error-message {
-    background: #fee;
-    border: 1px solid var(--danger);
-    color: var(--danger);
-    padding: 12px;
-    border-radius: 8px;
-    margin-top: 8px;
-    font-size: 14px;
-}
-
 /* 响应式 */
 @media (max-width: 768px) {
     .sidebar {
@@ -495,5 +592,10 @@ body {
     
     .message {
         max-width: 95%;
+    }
+    
+    .features-highlight {
+        flex-wrap: wrap;
+        gap: 20px;
     }
 }

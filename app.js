@@ -1,34 +1,11 @@
-// MCP 客户端类
+// MCP 客户端类 - 安全版本（API密钥在服务器端）
 class MCPClient {
     constructor() {
         this.baseUrl = 'http://localhost:3001';
         this.tools = [];
-        this.deepseekApiKey = this.getDeepSeekApiKey();
         this.conversationHistory = [];
+        this.toolResults = [];
         this.init();
-    }
-
-    /**
-     * 安全获取 DeepSeek API 密钥
-     * 优先从环境变量读取，如果未设置则使用硬编码密钥（仅限开发环境）
-     * 在生产环境中，应该通过后端代理来保护 API 密钥
-     */
-    getDeepSeekApiKey() {
-        // 尝试从环境变量读取
-        if (typeof process !== 'undefined' && process.env && process.env.DEEPSEEK_API_KEY) {
-            return process.env.DEEPSEEK_API_KEY;
-        }
-        
-        // 尝试从全局变量读取（适用于浏览器环境）
-        if (typeof window !== 'undefined' && window.DEEPSEEK_API_KEY) {
-            return window.DEEPSEEK_API_KEY;
-        }
-        
-        // 开发环境回退（仅用于本地开发）
-        // 注意：在生产环境中，这仍然不安全，应该使用后端代理
-        console.warn('⚠️ 未找到环境变量 DEEPSEEK_API_KEY，使用开发密钥（仅限本地开发）');
-        console.warn('⚠️ 生产环境请设置环境变量或使用后端代理保护 API 密钥');
-        return 'sk-';
     }
 
     async init() {
@@ -150,117 +127,275 @@ class MCPClient {
         if (welcome) welcome.remove();
 
         this.addMessage('user', query);
+        
+        this.conversationHistory.push({
+            role: 'user',
+            content: query
+        });
 
-        const loadingId = this.addLoadingMessage('正在分析任务...');
+        const thinkingId = this.addLoadingMessage('🤔 AI 正在思考...');
 
         try {
-            // 1. 检查是否是询问能力的问题
-            if (this.isMetaQuery(query)) {
-                this.removeLoadingMessage(loadingId);
-                this.handleMetaQuery();
-                return;
-            }
+            const aiDecision = await this.askAIForDecision(query);
+            this.removeLoadingMessage(thinkingId);
 
-            // 2. 使用 DeepSeek 分析查询
-            const analysis = await this.analyzeWithDeepSeek(query);
-            this.removeLoadingMessage(loadingId);
+            console.log('🤖 AI 决策:', aiDecision);
 
-            console.log('📊 分析结果:', analysis);
-
-            // 3. 判断是单步骤还是多步骤任务
-            if (analysis.workflow && analysis.workflow.length > 1) {
-                // 多步骤工作流
-                await this.executeWorkflow(analysis);
-            } else if (analysis.tool && analysis.tool !== 'none') {
-                // 单步骤任务
-                await this.executeSingleTool(analysis);
+            if (aiDecision.needsTools && aiDecision.toolCalls && aiDecision.toolCalls.length > 0) {
+                await this.executeToolCalls(aiDecision);
             } else {
-                this.addMessage('assistant', analysis.response || '抱歉，我无法处理这个请求。');
+                this.addMessage('assistant', aiDecision.response);
+                this.conversationHistory.push({
+                    role: 'assistant',
+                    content: aiDecision.response
+                });
             }
 
         } catch (error) {
-            this.removeLoadingMessage(loadingId);
+            this.removeLoadingMessage(thinkingId);
             this.addMessage('assistant', `❌ 出错了：${error.message}`, null, true);
             console.error('处理消息失败:', error);
         }
     }
 
-    async executeSingleTool(analysis) {
-        this.addMessage('assistant', 
-            `🔧 我将使用 **${analysis.tool}** 工具\n\n` +
-            `📝 原因: ${analysis.reason}\n` +
-            `⚙️ 参数: \`${JSON.stringify(analysis.params)}\``,
-            analysis
-        );
+    async askAIForDecision(userQuery) {
+        const toolsDescription = this.tools.map(t => 
+            `- **${t.name}**: ${t.description}\n  参数: ${JSON.stringify(t.inputSchema.properties)}`
+        ).join('\n\n');
 
-        const executeLoadingId = this.addLoadingMessage('正在执行...');
+        const toolResultsContext = this.toolResults.length > 0 
+            ? `\n\n最近的工具执行结果：\n${this.toolResults.slice(-3).map(r => 
+                `- ${r.tool}: ${r.result.substring(0, 200)}...`
+              ).join('\n')}`
+            : '';
+
+        const systemPrompt = `你是一个智能助手，可以调用工具来帮助用户完成任务。
+
+**可用工具列表：**
+${toolsDescription}
+
+**你的职责：**
+1. 理解用户需求
+2. 判断是否需要调用工具
+3. 如果需要，规划工具调用方案（可以是单个或多个工具）
+4. 如果不需要，直接用自然语言回复用户
+
+**重要规则：**
+- 对于需要多步骤的任务（如"读取文件并统计字数"），必须规划多个工具调用
+- 工具调用要有明确的顺序和依赖关系
+- 参数值使用 "[PREVIOUS_RESULT]" 表示需要使用上一步的结果
+- 如果用户只是闲聊或询问能力，不需要调用工具，直接回复即可
+
+**输出格式（JSON）：**
+
+不需要工具时：
+{
+  "needsTools": false,
+  "response": "你的回复内容"
+}
+
+需要单个工具时：
+{
+  "needsTools": true,
+  "thinking": "我的思考过程",
+  "toolCalls": [
+    {
+      "tool": "工具名",
+      "params": {"参数": "值"},
+      "reason": "为什么使用这个工具"
+    }
+  ]
+}
+
+需要多个工具时：
+{
+  "needsTools": true,
+  "thinking": "我的思考过程",
+  "toolCalls": [
+    {
+      "tool": "read_file",
+      "params": {"path": "demo.txt"},
+      "reason": "先读取文件内容",
+      "usesPreviousResult": false
+    },
+    {
+      "tool": "count_words",
+      "params": {"text": "[PREVIOUS_RESULT]"},
+      "reason": "对读取的内容进行字数统计",
+      "usesPreviousResult": true
+    }
+  ]
+}
+
+${toolResultsContext}`;
+
         try {
-            const result = await this.callTool(analysis.tool, analysis.params);
-            this.removeLoadingMessage(executeLoadingId);
-            this.addMessage('assistant', `✅ 执行结果：\n\n${result}`, null, true);
+            // 调用后端代理，而不是直接调用 DeepSeek API
+            const response = await fetch(`${this.baseUrl}/api/deepseek`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: 'deepseek-chat',
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        ...this.conversationHistory.slice(-6),
+                        { role: 'user', content: userQuery }
+                    ],
+                    temperature: 0.3,
+                    response_format: { type: 'json_object' }
+                })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`API 请求失败 (${response.status}): ${errorText}`);
+            }
+
+            const data = await response.json();
+            let content = data.choices[0].message.content;
+
+            content = content.replace(/```json\s*|\s*```/g, '');
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            const decision = JSON.parse(jsonMatch ? jsonMatch[0] : content);
+
+            return decision;
+
         } catch (error) {
-            this.removeLoadingMessage(executeLoadingId);
-            throw error;
+            console.error('❌ AI 决策失败:', error);
+            throw new Error(`AI 服务调用失败: ${error.message}`);
         }
     }
 
-    async executeWorkflow(analysis) {
-        this.addMessage('assistant', 
-            `🔄 检测到多步骤任务，需要执行 ${analysis.workflow.length} 个步骤：\n\n` +
-            analysis.workflow.map((step, i) => 
-                `${i + 1}. **${step.tool}** - ${step.reason}`
-            ).join('\n')
-        );
+    async executeToolCalls(aiDecision) {
+        const toolCalls = aiDecision.toolCalls;
+
+        if (aiDecision.thinking) {
+            this.addMessage('assistant', `💭 **AI 分析：** ${aiDecision.thinking}`);
+        }
+
+        if (toolCalls.length > 1) {
+            const planText = `📋 **执行计划**（共 ${toolCalls.length} 步）：\n\n` +
+                toolCalls.map((call, i) => 
+                    `${i + 1}. **${call.tool}** - ${call.reason}`
+                ).join('\n');
+            this.addMessage('assistant', planText);
+        } else {
+            this.addMessage('assistant', 
+                `🔧 **准备执行：** ${toolCalls[0].tool}\n📝 ${toolCalls[0].reason}`
+            );
+        }
 
         let previousResult = null;
+        const allResults = [];
 
-        for (let i = 0; i < analysis.workflow.length; i++) {
-            const step = analysis.workflow[i];
+        for (let i = 0; i < toolCalls.length; i++) {
+            const call = toolCalls[i];
             const stepNum = i + 1;
 
-            this.addMessage('assistant', 
-                `📍 **步骤 ${stepNum}/${analysis.workflow.length}**: ${step.tool}\n` +
-                `⚙️ 参数: \`${JSON.stringify(step.params)}\``
+            const executingId = this.addLoadingMessage(
+                `⚙️ 执行步骤 ${stepNum}/${toolCalls.length}: ${call.tool}...`
             );
 
-            const loadingId = this.addLoadingMessage(`执行步骤 ${stepNum}...`);
-
             try {
-                // 如果参数需要上一步的结果，进行替换
-                let params = step.params;
-                if (previousResult && step.usesPreviousResult) {
+                let params = { ...call.params };
+                if (call.usesPreviousResult && previousResult) {
                     params = this.injectPreviousResult(params, previousResult);
                 }
 
-                const result = await this.callTool(step.tool, params);
-                this.removeLoadingMessage(loadingId);
+                const result = await this.callTool(call.tool, params);
+                this.removeLoadingMessage(executingId);
 
-                // 保存结果供下一步使用
                 previousResult = result;
-
-                // 显示中间结果（如果不是最后一步）
-                if (i < analysis.workflow.length - 1) {
-                    const preview = result.length > 200 
-                        ? result.substring(0, 200) + '...' 
-                        : result;
-                    this.addMessage('assistant', 
-                        `✅ 步骤 ${stepNum} 完成\n\n${preview}`,
-                        null, 
-                        false
-                    );
-                } else {
-                    // 最后一步显示完整结果
-                    this.addMessage('assistant', 
-                        `🎉 **任务完成！**\n\n${result}`,
-                        null,
-                        true
-                    );
+                allResults.push({ tool: call.tool, result, params });
+                
+                this.toolResults.push({ tool: call.tool, result });
+                if (this.toolResults.length > 10) {
+                    this.toolResults.shift();
                 }
 
+                const preview = result.length > 300 
+                    ? result.substring(0, 300) + '...' 
+                    : result;
+                
+                this.addMessage('assistant', 
+                    `✅ **步骤 ${stepNum} 完成**\n\n` +
+                    `\`\`\`\n${preview}\n\`\`\``,
+                    null,
+                    false
+                );
+
             } catch (error) {
-                this.removeLoadingMessage(loadingId);
-                throw new Error(`步骤 ${stepNum} 失败: ${error.message}`);
+                this.removeLoadingMessage(executingId);
+                this.addMessage('assistant', 
+                    `❌ 步骤 ${stepNum} 失败: ${error.message}`,
+                    null,
+                    true
+                );
+                return;
             }
+        }
+
+        await this.summarizeResults(aiDecision, allResults);
+    }
+
+    async summarizeResults(aiDecision, results) {
+        const summaryLoadingId = this.addLoadingMessage('✨ AI 正在总结结果...');
+
+        try {
+            const resultsText = results.map(r => 
+                `**${r.tool}**: ${r.result.substring(0, 500)}`
+            ).join('\n\n');
+
+            const summaryPrompt = `用户的原始请求已经通过工具执行完成。
+
+**执行的工具和结果：**
+${resultsText}
+
+请用自然、友好的语言向用户总结执行结果。要求：
+1. 突出关键信息
+2. 使用用户容易理解的语言
+3. 如果有具体数据，要清晰呈现
+4. 简洁但完整
+
+直接输出总结内容，不要包含任何格式标记。`;
+
+            const response = await fetch(`${this.baseUrl}/api/deepseek`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: 'deepseek-chat',
+                    messages: [
+                        ...this.conversationHistory.slice(-4),
+                        { role: 'user', content: summaryPrompt }
+                    ],
+                    temperature: 0.7
+                })
+            });
+
+            const data = await response.json();
+            const summary = data.choices[0].message.content;
+
+            this.removeLoadingMessage(summaryLoadingId);
+            
+            this.addMessage('assistant', `🎉 **任务完成！**\n\n${summary}`, null, true);
+            
+            this.conversationHistory.push({
+                role: 'assistant',
+                content: summary
+            });
+
+        } catch (error) {
+            this.removeLoadingMessage(summaryLoadingId);
+            console.error('AI 总结失败:', error);
+            this.addMessage('assistant', 
+                `✅ **任务完成！**\n\n最终结果：\n\n${results[results.length - 1].result}`,
+                null,
+                true
+            );
         }
     }
 
@@ -273,211 +408,6 @@ class MCPClient {
             }
         }
         return newParams;
-    }
-
-    isMetaQuery(query) {
-        const patterns = [
-            /你(有|能做)(什么|哪些)(工具|功能|能力)/i,
-            /工具列表/i,
-            /可用工具/i,
-            /支持.*工具/i,
-            /能力列表/i
-        ];
-        return patterns.some(p => p.test(query));
-    }
-
-    handleMetaQuery() {
-        const toolList = this.tools.map(t => 
-            `• **${t.name}**: ${t.description}`
-        ).join('\n\n');
-
-        this.addMessage('assistant', 
-            `我有以下 ${this.tools.length} 个工具可以使用：\n\n${toolList}\n\n` +
-            `💡 你可以用自然语言告诉我要做什么，我会自动选择合适的工具来帮你！`
-        );
-    }
-
-    async analyzeWithDeepSeek(query) {
-        try {
-            const toolsDesc = this.tools.map(t => 
-                `- ${t.name}: ${t.description}`
-            ).join('\n');
-
-            const systemPrompt = `你是一个精确的任务分析和工具调度专家。分析用户请求，规划执行步骤。
-
-可用工具：
-${toolsDesc}
-
-**重要规则**：
-
-1. **多步骤任务识别**（优先级最高）：
-   - "读取XX文件并统计字数" → 需要2步：read_file → count_words
-   - "读取XX文件然后..." → 识别为多步骤
-   - "...并且..." "...然后..." → 识别为多步骤
-
-2. **工具选择规则**：
-   - calculate: 数学计算（包含数字、运算符）
-   - read_file: 读取文件内容（明确文件路径）
-   - count_words: 统计文本（必须先有文本内容）
-   - list_files: 列出目录（要求"列出""查看目录"等）
-   - write_file: 写入文件
-   - current_time: 查询时间
-   - execute_command: 执行命令
-   - web_search_mock: 搜索信息
-
-3. **输出格式**：
-
-单步骤任务：
-\`\`\`json
-{
-  "type": "single",
-  "tool": "工具名",
-  "params": {参数},
-  "reason": "选择原因"
-}
-\`\`\`
-
-多步骤任务：
-\`\`\`json
-{
-  "type": "workflow",
-  "workflow": [
-    {
-      "tool": "read_file",
-      "params": {"path": "demo.txt"},
-      "reason": "先读取文件内容",
-      "usesPreviousResult": false
-    },
-    {
-      "tool": "count_words",
-      "params": {"text": "[PREVIOUS_RESULT]"},
-      "reason": "统计读取到的文本",
-      "usesPreviousResult": true
-    }
-  ]
-}
-\`\`\`
-
-**示例**：
-输入："读取demo.txt文件并统计字数"
-输出：多步骤工作流（read_file → count_words）
-
-输入："计算2+2"
-输出：单步骤（calculate）`;
-
-            const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.deepseekApiKey}`
-                },
-                body: JSON.stringify({
-                    model: 'deepseek-chat',
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        { role: 'user', content: query }
-                    ],
-                    temperature: 0.1,
-                    response_format: { type: 'json_object' }
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`DeepSeek API 错误: ${response.status}`);
-            }
-
-            const data = await response.json();
-            let content = data.choices[0].message.content;
-
-            content = content.replace(/```json\s*|\s*```/g, '');
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-            const analysis = JSON.parse(jsonMatch ? jsonMatch[0] : content);
-
-            console.log('🤖 DeepSeek原始分析:', analysis);
-
-            // 标准化输出格式
-            if (analysis.type === 'workflow' && analysis.workflow) {
-                return analysis;
-            } else {
-                return {
-                    tool: analysis.tool,
-                    params: analysis.params,
-                    reason: analysis.reason
-                };
-            }
-
-        } catch (error) {
-            console.error('❌ DeepSeek 分析失败:', error);
-            return this.fallbackAnalysis(query);
-        }
-    }
-
-    fallbackAnalysis(query) {
-        const q = query.toLowerCase();
-
-        // 检测多步骤任务
-        if ((q.includes('读') || q.includes('读取')) && 
-            (q.includes('统计') || q.includes('字数') || q.includes('行数'))) {
-            const pathMatch = query.match(/[\w\.\/\-]+\.txt/i) || ['demo.txt'];
-            return {
-                type: 'workflow',
-                workflow: [
-                    {
-                        tool: 'read_file',
-                        params: { path: `./${pathMatch[0]}` },
-                        reason: '读取文件内容',
-                        usesPreviousResult: false
-                    },
-                    {
-                        tool: 'count_words',
-                        params: { text: '[PREVIOUS_RESULT]' },
-                        reason: '统计文本字数和行数',
-                        usesPreviousResult: true
-                    }
-                ]
-            };
-        }
-
-        // 单步骤任务
-        if (q.includes('计算') || /\d+[\+\-\*\/]/.test(q)) {
-            const expr = query.match(/[\d\+\-\*\/\(\)\.\s]+/)?.[0] || '2+2';
-            return {
-                tool: 'calculate',
-                params: { expression: expr.trim() },
-                reason: '检测到数学表达式'
-            };
-        }
-
-        if (q.includes('读') && q.includes('文件')) {
-            const path = query.match(/[\w\.\/\-]+\.\w+/)?.[0] || './demo.txt';
-            return {
-                tool: 'read_file',
-                params: { path },
-                reason: '检测到文件读取请求'
-            };
-        }
-
-        if (q.includes('列出') || (q.includes('查看') && q.includes('目录'))) {
-            return {
-                tool: 'list_files',
-                params: { path: '.' },
-                reason: '检测到目录列表请求'
-            };
-        }
-
-        if (q.includes('时间')) {
-            return {
-                tool: 'current_time',
-                params: { timezone: '' },
-                reason: '检测到时间查询'
-            };
-        }
-
-        return {
-            tool: 'web_search_mock',
-            params: { query },
-            reason: '默认使用搜索'
-        };
     }
 
     async callTool(toolName, params) {
@@ -513,21 +443,12 @@ ${toolsDesc}
         let formattedContent = content;
         formattedContent = formattedContent.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
         formattedContent = formattedContent.replace(/`([^`]+)`/g, '<code>$1</code>');
+        formattedContent = formattedContent.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
         formattedContent = formattedContent.replace(/\n/g, '<br>');
-
-        if (isResult && content.length > 100) {
-            formattedContent = `<pre>${this.escapeHtml(content)}</pre>`;
-        }
 
         messageDiv.innerHTML = `
             <div class="message-content">
                 ${formattedContent}
-                ${metadata && metadata.reason ? `
-                    <div class="tool-selection">
-                        <strong>🔧 工具分析</strong><br>
-                        ${metadata.reason}
-                    </div>
-                ` : ''}
             </div>
             <div class="message-meta">${new Date().toLocaleTimeString()}</div>
         `;

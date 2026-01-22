@@ -1,7 +1,13 @@
+require('dotenv').config();
+
 const http = require('http');
+const https = require('https');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+
+// 从环境变量或配置文件读取 API 密钥
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || 'sk-';
 
 let mcpServer = null;
 let mcpBuffer = '';
@@ -17,7 +23,6 @@ function startMCPServer() {
   mcpServer.stdout.on('data', (data) => {
     mcpBuffer += data.toString();
     
-    // 尝试解析完整的JSON响应
     let startIndex = 0;
     while (true) {
       const jsonStart = mcpBuffer.indexOf('{', startIndex);
@@ -41,7 +46,6 @@ function startMCPServer() {
         const jsonStr = mcpBuffer.substring(jsonStart, jsonEnd + 1);
         const response = JSON.parse(jsonStr);
         
-        // 调用对应的回调
         if (response.id && responseCallbacks.has(response.id)) {
           const callback = responseCallbacks.get(response.id);
           responseCallbacks.delete(response.id);
@@ -69,7 +73,7 @@ function startMCPServer() {
   });
 }
 
-// 向MCP服务器发送请求
+// 发送到MCP服务器
 function sendToMCP(request) {
   return new Promise((resolve, reject) => {
     const id = requestId++;
@@ -90,12 +94,80 @@ function sendToMCP(request) {
   });
 }
 
+// DeepSeek API 代理
+function proxyDeepSeekAPI(req, res) {
+  let body = '';
+  
+  req.on('data', chunk => {
+    body += chunk.toString();
+  });
+  
+  req.on('end', () => {
+    try {
+      const requestData = JSON.parse(body);
+      
+      // 构建发送给 DeepSeek 的请求
+      const deepseekRequest = JSON.stringify(requestData);
+      
+      const options = {
+        hostname: 'api.deepseek.com',
+        path: '/v1/chat/completions',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
+          'Content-Length': Buffer.byteLength(deepseekRequest)
+        }
+      };
+      
+      const proxyReq = https.request(options, (proxyRes) => {
+        let responseData = '';
+        
+        proxyRes.on('data', (chunk) => {
+          responseData += chunk;
+        });
+        
+        proxyRes.on('end', () => {
+          res.writeHead(proxyRes.statusCode, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          });
+          res.end(responseData);
+        });
+      });
+      
+      proxyReq.on('error', (error) => {
+        console.error('DeepSeek API 请求失败:', error);
+        res.writeHead(500, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(JSON.stringify({ 
+          error: `API 请求失败: ${error.message}` 
+        }));
+      });
+      
+      proxyReq.write(deepseekRequest);
+      proxyReq.end();
+      
+    } catch (error) {
+      res.writeHead(400, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(JSON.stringify({ 
+        error: `无效的请求: ${error.message}` 
+      }));
+    }
+  });
+}
+
 // 创建HTTP服务器
 const server = http.createServer(async (req, res) => {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
   if (req.method === 'OPTIONS') {
     res.writeHead(200);
@@ -105,10 +177,21 @@ const server = http.createServer(async (req, res) => {
   
   const pathname = req.url.split('?')[0];
   
-  // API路由
+  // DeepSeek API 代理路由
+  if (pathname === '/api/deepseek') {
+    if (req.method === 'POST') {
+      proxyDeepSeekAPI(req, res);
+      return;
+    } else {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '只支持 POST 请求' }));
+      return;
+    }
+  }
+  
+  // MCP 工具 API 路由
   if (pathname === '/api/tools') {
     if (req.method === 'GET') {
-      // 获取工具列表
       try {
         const response = await sendToMCP({
           jsonrpc: '2.0',
@@ -122,7 +205,6 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: error.message }));
       }
     } else if (req.method === 'POST') {
-      // 调用工具
       let body = '';
       req.on('data', chunk => body += chunk);
       req.on('end', async () => {
@@ -167,7 +249,8 @@ const server = http.createServer(async (req, res) => {
 const PORT = 3001;
 server.listen(PORT, () => {
   console.log(`\n🚀 服务器运行在 http://localhost:${PORT}`);
-  console.log('📝 打开浏览器访问上述地址开始使用\n');
+  console.log('📁 打开浏览器访问上述地址开始使用');
+  console.log('🔑 DeepSeek API Key:', DEEPSEEK_API_KEY.substring(0, 10) + '...\n');
   startMCPServer();
 });
 
