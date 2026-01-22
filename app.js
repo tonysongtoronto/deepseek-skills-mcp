@@ -28,7 +28,7 @@ class MCPClient {
         // 注意：在生产环境中，这仍然不安全，应该使用后端代理
         console.warn('⚠️ 未找到环境变量 DEEPSEEK_API_KEY，使用开发密钥（仅限本地开发）');
         console.warn('⚠️ 生产环境请设置环境变量或使用后端代理保护 API 密钥');
-        return 'sk-47196ba610fb4e8eafaabafb331f7f37';
+        return 'sk-';
     }
 
     async init() {
