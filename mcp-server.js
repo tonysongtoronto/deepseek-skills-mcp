@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const {
@@ -5,329 +7,222 @@ const {
   ListToolsRequestSchema,
 } = require('@modelcontextprotocol/sdk/types.js');
 
-// 创建 MCP 服务器
+// 1. 初始化服务器
 const server = new Server(
-  {
-    name: 'deepseek-skills-server',
-    version: '1.0.0',
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
+  { name: 'deepseek-skills-server', version: '1.3.0' },
+  { capabilities: { tools: {} } }
 );
 
-// 定义免费工具（不需要额外 API）
+// 2. 声明所有工具
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
+      { name: 'calculate', description: '数学计算', inputSchema: { type: 'object', properties: { expression: { type: 'string' } }, required: ['expression'] } },
+      { name: 'read_file', description: '读文件', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
+      { name: 'write_file', description: '写文件', inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } },
+      { name: 'list_files', description: '列出文件', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
+      { name: 'execute_command', description: '执行命令', inputSchema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
+      { name: 'current_time', description: '当前时间', inputSchema: { type: 'object', properties: { timezone: { type: 'string' } } } },
+      { name: 'count_words', description: '字数统计', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
       {
-        name: 'calculate',
-        description: '执行数学计算，包括基本运算、复杂表达式、科学计算和统计函数。适用于数值计算、公式求解、数据分析等场景。',
+        name: 'web_search',
+        description: '全能联网搜索（自动切换引擎）',
         inputSchema: {
           type: 'object',
           properties: {
-            expression: {
-              type: 'string',
-              description: '数学表达式，例如：2+2, sqrt(16), sin(45 deg), log(100, 10), (3+4)*5/2, pi*2^2。支持常用数学函数：sin, cos, tan, sqrt, log, ln, exp, abs, round, ceil, floor, min, max, sum, mean, median, std, var。',
-            },
+            query: { type: 'string', description: '关键词' },
+            limit: { type: 'number', description: '结果数' }
           },
-          required: ['expression'],
-        },
-      },
-      {
-        name: 'read_file',
-        description: '读取本地文件内容，获取文本数据供其他工具处理。支持文本文件（txt, json, js, html, css, py, md等）。通常作为数据处理流程的第一步，为后续分析提供原始数据。',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            path: {
-              type: 'string',
-              description: '文件的相对或绝对路径。例如：./demo.txt, ../data.json, /home/user/file.js。支持相对路径（相对于当前工作目录）和绝对路径。',
-            },
-          },
-          required: ['path'],
-        },
-      },
-      {
-        name: 'write_file',
-        description: '写入内容到文件，用于保存处理结果、生成报告或创建配置文件。如果文件不存在则创建，如果存在则覆盖。支持文本文件格式，自动使用UTF-8编码。',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            path: {
-              type: 'string',
-              description: '文件路径。例如：./output.txt, ../results.json, /tmp/log.txt。可以指定相对或绝对路径。',
-            },
-            content: {
-              type: 'string',
-              description: '要写入的内容。可以是纯文本、JSON、HTML、代码等任何文本内容。',
-            },
-          },
-          required: ['path', 'content'],
-        },
-      },
-      {
-        name: 'list_files',
-        description: '列出指定目录中的所有文件和子目录，用于文件系统导航和内容查看。返回文件名列表，每行一个。支持递归和非递归模式（当前仅非递归）。',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            path: {
-              type: 'string',
-              description: '目录路径。例如：., ./src, ../, /home/user/documents。使用"."表示当前目录，".."表示上级目录。',
-            },
-          },
-          required: ['path'],
-        },
-      },
-      {
-        name: 'execute_command',
-        description: '执行系统命令（Shell命令），用于系统操作、软件安装、进程管理等。支持Windows和Linux/macOS命令。注意：执行系统命令有安全风险，请确保命令来源可信。命令执行超时时间为5秒。',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            command: {
-              type: 'string',
-              description: '要执行的系统命令。例如：dir（Windows）或ls（Linux/macOS）, echo "Hello", python --version, node -v, git status, npm list。',
-            },
-          },
-          required: ['command'],
-        },
-      },
-      {
-        name: 'current_time',
-        description: '获取当前日期和时间，用于时间戳记录、定时任务或时间相关计算。支持指定时区，如果不指定时区则使用系统默认时区。返回格式化的本地时间字符串。',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            timezone: {
-              type: 'string',
-              description: '时区（可选）。例如：Asia/Shanghai（中国标准时间）, America/New_York（美国东部时间）, Europe/London（伦敦时间）, UTC（协调世界时）。支持的时区列表：https://en.wikipedia.org/wiki/List_of_tz_database_time_zones',
-            },
-          },
-        },
-      },
-      {
-        name: 'web_search_mock',
-        description: '模拟网络搜索功能（演示用途），用于信息查询和知识获取。返回模拟的搜索结果，用于测试和演示搜索功能。实际使用时需要接入真实搜索API（如Google Search API、Bing Search API等）。',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            query: {
-              type: 'string',
-              description: '搜索查询关键词。例如：人工智能最新进展, Python教程, 天气预报, 新闻头条。',
-            },
-          },
-          required: ['query'],
-        },
-      },
-      {
-        name: 'count_words',
-        description: '智能统计文本中的字数、行数和字符数，特别支持中英文混合文本分析。需要先使用read_file获取文本内容。返回详细的文本统计信息，包括行数、中文字符数、英文字符数等。对于中文文本，自动识别"字数"通常指中文字符数。',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            text: {
-              type: 'string',
-              description: '要统计的文本内容，支持中英文混合文本。可以是任意长度的文本，支持多行文本。例如：中文文章、英文文档、中英文混合内容、代码文件等。',
-            },
-          },
-          required: ['text'],
-        },
+          required: ['query']
+        }
       },
     ],
   };
 });
 
-// 处理工具调用
+// 3. 处理工具逻辑
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
     switch (name) {
+      case 'web_search': {
+        const axios = require('axios');
+
+        const query = args.query?.trim();
+        const limit = Math.min(args.limit || 10, 20);  // Brave 建议单次别超 20
+
+        if (!query) {
+          console.error('[Brave追踪] 错误: query 参数为空');
+          return { content: [{ type: 'text', text: "搜索失败：查询词不能为空" }], isError: true };
+        }
+
+        console.error(`[Brave追踪] 开始搜索: "${query}" | 目标条数: ${limit}`);
+
+        const braveKey = process.env.BRAVE_SUBSCRIPTION_TOKEN;
+           console.error('======================');
+            console.error(braveKey);
+            console.error('======================');
+        if (!braveKey) {
+          console.error('[Brave追踪] CRITICAL: BRAVE_SUBSCRIPTION_TOKEN 环境变量未设置或为空');
+          return {
+            content: [{ type: 'text', text: "搜索失败：缺少 BRAVE_SUBSCRIPTION_TOKEN 环境变量。请在服务器启动前设置 export BRAVE_SUBSCRIPTION_TOKEN='bs_xxx...'" }],
+            isError: true
+          };
+        }
+
+        console.error(`[Brave追踪] Token 前4位预览: ${braveKey.substring(0, 4)}... (长度:${braveKey.length})`);
+
+        try {
+          console.error(`[Brave追踪] 准备发送请求 → https://api.search.brave.com/res/v1/web/search`);
+          console.error(`[Brave追踪] 请求参数: q=${query}, count=${limit}, search_lang=zh, safesearch=strict`);
+
+          const response = await axios.get('https://api.search.brave.com/res/v1/web/search', {
+            params: {
+              q: query,
+              count: limit,
+              //search_lang: 'zh',          // 优先中文结果，可改成 'en' 或移除
+              safesearch: 'off',       // 可改为 'moderate' 或 'off'
+              //freshness: 'py',         // 可选：过去一周结果，取消注释启用
+            },
+            headers: {
+              'Accept': 'application/json',
+              'Accept-Encoding': 'identity',
+              'X-Subscription-Token': braveKey
+            },
+            timeout: 12000,               // 12秒超时，Brave 有时稍慢
+          });
+
+          console.error(`[Brave追踪] 请求成功 - HTTP 状态码: ${response.status}`);
+          console.error(`[Brave追踪] 响应头关键信息: content-length=${response.headers['content-length'] || '未知'}, date=${response.headers.date || '未知'}`);
+
+          const data = response.data;
+
+          // 打印响应结构关键信息，便于调试
+          console.error(`[Brave追踪] 响应类型: ${data.type || '未知'}`);
+          console.error(`[Brave追踪] web.results 存在? ${!!data.web?.results}`);
+          if (data.web?.results) {
+            console.error(`[Brave追踪] 实际返回条数: ${data.web.results.length}`);
+            console.error(`[Brave追踪] 第一条标题预览: ${data.web.results[0]?.title?.substring(0, 60) || '无'}...`);
+          } else {
+            console.error('[Brave追踪] web.results 为空或不存在');
+            if (data.query) {
+              console.error(`[Brave追踪] query 元信息: ${JSON.stringify(data.query, null, 2).substring(0, 200)}...`);
+            }
+          }
+
+          if (data.web?.results?.length > 0) {
+            // 格式化输出，保持兼容性
+            const formatted = data.web.results.map(item => ({
+              title: item.title || '无标题',
+              url: item.url || '#',
+              description: item.description || item.snippet || '无描述',
+              age: item.age || ''
+            }));
+
+            let extra = '';
+            if (data.query?.answer_box?.answer) {
+              extra = `\n\n[Brave AI 快速回答]: ${data.query.answer_box.answer}`;
+            }
+
+            const outputText = JSON.stringify(formatted.slice(0, limit), null, 2) + extra;
+            console.error(`[Brave追踪] 返回成功 - 最终输出长度约 ${outputText.length} 字符`);
+
+            return { content: [{ type: 'text', text: outputText }] };
+          } else {
+            console.error('[Brave追踪] 成功响应，但 web.results 为空');
+            return {
+              content: [{ type: 'text', text: `搜索完成但无结果（Brave 返回了 0 条有效网页）。可能原因：查询太新/太偏门/地区限制，或 Brave 索引未覆盖。建议稍后重试或换个表述。` }],
+              isError: true
+            };
+          }
+
+        } catch (e) {
+          const errMsg = e.message || '未知错误';
+          console.error(`[Brave追踪] 请求失败: ${errMsg}`);
+
+          if (e.response) {
+            const status = e.response.status;
+            console.error(`[Brave追踪] HTTP 错误码: ${status}`);
+            console.error(`[Brave追踪] 错误响应预览: ${JSON.stringify(e.response.data || {}, null, 2).substring(0, 300)}...`);
+
+            let userMsg = `搜索失败（HTTP ${status}）`;
+
+            if (status === 401 || status === 403 || status === 422) {
+              userMsg += " - Token 无效或已过期。请检查 BRAVE_SUBSCRIPTION_TOKEN 是否正确、是否针对 Web Search 端点生成、在 dashboard 重新生成/确认。";
+            } else if (status === 429) {
+              userMsg += " - 超出配额（429 Too Many Requests）。免费 tier 每月 2000 次，已用完或速率过高。请等待重置或查看 https://api-dashboard.search.brave.com/app/ 用量。";
+            } else if (status === 400) {
+              userMsg += " - 请求参数错误。请检查 query 是否合法。";
+            } else {
+              userMsg += ` - 服务器端问题：${errMsg}`;
+            }
+
+            return { content: [{ type: 'text', text: userMsg }], isError: true };
+          } else {
+            // 网络超时等非 HTTP 错误
+            console.error(`[Brave追踪] 非 HTTP 错误: ${e.code || '未知'} - ${errMsg}`);
+            return {
+              content: [{ type: 'text', text: `搜索失败：网络问题或超时（${errMsg}）。请检查服务器网络、Brave API 是否可达，或稍后重试。` }],
+              isError: true
+            };
+          }
+        }
+      }
+
       case 'calculate': {
         const math = require('mathjs');
-        const result = math.evaluate(args.expression);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `计算结果: ${result}`,
-            },
-          ],
-        };
+        return { content: [{ type: 'text', text: `计算结果: ${math.evaluate(args.expression)}` }] };
       }
 
       case 'read_file': {
         const fs = require('fs').promises;
         const content = await fs.readFile(args.path, 'utf-8');
-        return {
-          content: [
-            {
-              type: 'text',
-              text: content,
-            },
-          ],
-        };
+        return { content: [{ type: 'text', text: content }] };
       }
 
       case 'write_file': {
         const fs = require('fs').promises;
         await fs.writeFile(args.path, args.content, 'utf-8');
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `文件已写入: ${args.path}`,
-            },
-          ],
-        };
+        return { content: [{ type: 'text', text: `已成功保存到: ${args.path}` }] };
       }
 
       case 'list_files': {
         const fs = require('fs').promises;
         const files = await fs.readdir(args.path);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `目录内容:\n${files.join('\n')}`,
-            },
-          ],
-        };
+        return { content: [{ type: 'text', text: `目录列表: ${files.join(', ')}` }] };
       }
 
       case 'execute_command': {
         const { execSync } = require('child_process');
-        const output = execSync(args.command, { 
-          encoding: 'utf-8',
-          timeout: 5000 // 5 秒超时
-        });
-        return {
-          content: [
-            {
-              type: 'text',
-              text: output,
-            },
-          ],
-        };
+        const output = execSync(args.command, { encoding: 'utf-8', timeout: 5000 });
+        return { content: [{ type: 'text', text: output }] };
       }
 
       case 'current_time': {
-        const now = new Date();
-        const timeString = args.timezone 
-          ? now.toLocaleString('zh-CN', { timeZone: args.timezone })
-          : now.toLocaleString('zh-CN');
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `当前时间: ${timeString}`,
-            },
-          ],
-        };
-      }
-
-      case 'web_search_mock': {
-        // 模拟搜索结果（用于演示）
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                query: args.query,
-                note: '这是模拟结果，实际使用需要接入真实搜索 API',
-                results: [
-                  {
-                    title: `关于 "${args.query}" 的结果 1`,
-                    snippet: '这是搜索结果摘要...',
-                    url: 'https://example.com/1',
-                  },
-                  {
-                    title: `关于 "${args.query}" 的结果 2`,
-                    snippet: '另一个相关结果...',
-                    url: 'https://example.com/2',
-                  },
-                ],
-              }, null, 2),
-            },
-          ],
-        };
+        const time = args.timezone ? new Date().toLocaleString('zh-CN', { timeZone: args.timezone }) : new Date().toLocaleString('zh-CN');
+        return { content: [{ type: 'text', text: `当前时间: ${time}` }] };
       }
 
       case 'count_words': {
-        const text = args.text;
-        
-        // 行数统计
+        const text = args.text || "";
         const lines = text.split('\n').length;
-        
-        // 字符数统计
-        const totalChars = text.length;
-        const charsWithoutSpaces = text.replace(/\s/g, '').length;
-        
-        // 单词数统计（按空格分隔，适用于英文）
-        const words = text.split(/\s+/).filter(w => w.length > 0).length;
-        
-        // 中文字符统计
         const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
-        const chinesePunctuation = (text.match(/[\u3000-\u303f\uff00-\uffef]/g) || []).length;
-        const totalChineseChars = chineseChars + chinesePunctuation;
-        
-        // 非中文字符统计（英文、数字、符号等）
-        const nonChineseChars = totalChars - totalChineseChars - (text.match(/\s/g) || []).length;
-        
-        // 构建统计结果
-        let result = `文本统计结果:\n`;
-        result += `====================\n`;
-        result += `行数: ${lines}\n`;
-        result += `单词数（按空格分隔）: ${words}\n`;
-        result += `总字符数（包括空格和换行）: ${totalChars}\n`;
-        result += `字符数（不包括空格）: ${charsWithoutSpaces}\n`;
-        result += `====================\n`;
-        result += `中文字符统计:\n`;
-        result += `  中文字符数: ${chineseChars}\n`;
-        result += `  中文标点数: ${chinesePunctuation}\n`;
-        result += `  总中文字符（包括标点）: ${totalChineseChars}\n`;
-        result += `非中文字符数（英文、数字、符号等）: ${nonChineseChars}\n`;
-        result += `====================\n`;
-        result += `说明:\n`;
-        result += `1. "字数"通常指中文字符数，这里为: ${totalChineseChars}\n`;
-        result += `2. "行数"指文本行数: ${lines}\n`;
-        result += `3. 对于中文文本，"单词数"可能不适用，仅供参考\n`;
-        
-        return {
-          content: [
-            {
-              type: 'text',
-              text: result,
-            },
-          ],
-        };
+        return { content: [{ type: 'text', text: `文本分析: ${lines}行, 总计${text.length}字符, 其中中文${chineseChars}字。` }] };
       }
 
       default:
-        throw new Error(`未知工具: ${name}`);
+        throw new Error(`工具 ${name} 尚未定义`);
     }
   } catch (error) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `错误: ${error.message}`,
-        },
-      ],
-      isError: true,
-    };
+    return { content: [{ type: 'text', text: `运行错误: ${error.message}` }], isError: true };
   }
 });
 
-// 启动服务器
+// 4. 运行
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('DeepSeek Skills MCP 服务器已启动');
+  console.error('DeepSeek 终极技能服务器已就绪 (混合动力版)');
 }
-
 main().catch(console.error);
