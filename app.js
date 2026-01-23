@@ -1,4 +1,4 @@
-// MCP 客户端类 - 安全版本（API密钥在服务器端）
+// MCP 客户端类 - 安全版本(API密钥在服务器端)
 class MCPClient {
     constructor() {
         this.baseUrl = 'http://localhost:3001';
@@ -90,7 +90,7 @@ class MCPClient {
         const toolIcons = {
             'calculate': '🔢',
             'read_file': '📄',
-            'write_file': '✍️',
+            'write_file': '✏️',
             'list_files': '📁',
             'execute_command': '⚙️',
             'current_time': '🕐',
@@ -153,7 +153,7 @@ class MCPClient {
 
         } catch (error) {
             this.removeLoadingMessage(thinkingId);
-            this.addMessage('assistant', `❌ 出错了：${error.message}`, null, true);
+            this.addMessage('assistant', `❌ 出错了:${error.message}`, null, true);
             console.error('处理消息失败:', error);
         }
     }
@@ -164,37 +164,38 @@ class MCPClient {
         ).join('\n\n');
 
         const toolResultsContext = this.toolResults.length > 0 
-            ? `\n\n最近的工具执行结果：\n${this.toolResults.slice(-3).map(r => 
+            ? `\n\n最近的工具执行结果:\n${this.toolResults.slice(-3).map(r => 
                 `- ${r.tool}: ${r.result.substring(0, 200)}...`
               ).join('\n')}`
             : '';
 
-        const systemPrompt = `你是一个智能助手，可以调用工具来帮助用户完成任务。
+        const systemPrompt = `你是一个智能助手,可以调用工具来帮助用户完成任务。
 
-**可用工具列表：**
+**可用工具列表:**
 ${toolsDescription}
 
-**你的职责：**
+**你的职责:**
 1. 理解用户需求
 2. 判断是否需要调用工具
-3. 如果需要，规划工具调用方案（可以是单个或多个工具）
-4. 如果不需要，直接用自然语言回复用户
+3. 如果需要,规划工具调用方案(可以是单个或多个工具)
+4. 如果不需要,直接用自然语言回复用户
 
-**重要规则：**
-- 对于需要多步骤的任务（如"读取文件并统计字数"），必须规划多个工具调用
+**重要规则:**
+- 对于需要多步骤的任务(如"读取文件并统计字数"),必须规划多个工具调用
 - 工具调用要有明确的顺序和依赖关系
-- 参数值使用 "[PREVIOUS_RESULT]" 表示需要使用上一步的结果
-- 如果用户只是闲聊或询问能力，不需要调用工具，直接回复即可
+- 参数值使用 "{{PREVIOUS}}" 表示需要使用上一步的结果
+- 也可以用 "{{step_0}}" 引用第0步的结果,或 "{{read_file}}" 引用该工具的结果
+- 如果用户只是闲聊或询问能力,不需要调用工具,直接回复即可
 
-**输出格式（JSON）：**
+**输出格式(JSON):**
 
-不需要工具时：
+不需要工具时:
 {
   "needsTools": false,
   "response": "你的回复内容"
 }
 
-需要单个工具时：
+需要单个工具时:
 {
   "needsTools": true,
   "thinking": "我的思考过程",
@@ -207,7 +208,7 @@ ${toolsDescription}
   ]
 }
 
-需要多个工具时：
+需要多个工具时:
 {
   "needsTools": true,
   "thinking": "我的思考过程",
@@ -215,14 +216,12 @@ ${toolsDescription}
     {
       "tool": "read_file",
       "params": {"path": "demo.txt"},
-      "reason": "先读取文件内容",
-      "usesPreviousResult": false
+      "reason": "先读取文件内容"
     },
     {
       "tool": "count_words",
-      "params": {"text": "[PREVIOUS_RESULT]"},
-      "reason": "对读取的内容进行字数统计",
-      "usesPreviousResult": true
+      "params": {"text": "{{PREVIOUS}}"},
+      "reason": "对读取的内容进行字数统计"
     }
   ]
 }
@@ -230,7 +229,6 @@ ${toolsDescription}
 ${toolResultsContext}`;
 
         try {
-            // 调用后端代理，而不是直接调用 DeepSeek API
             const response = await fetch(`${this.baseUrl}/api/deepseek`, {
                 method: 'POST',
                 headers: {
@@ -272,22 +270,23 @@ ${toolResultsContext}`;
         const toolCalls = aiDecision.toolCalls;
 
         if (aiDecision.thinking) {
-            this.addMessage('assistant', `💭 **AI 分析：** ${aiDecision.thinking}`);
+            this.addMessage('assistant', `💭 **AI 分析:** ${aiDecision.thinking}`);
         }
 
         if (toolCalls.length > 1) {
-            const planText = `📋 **执行计划**（共 ${toolCalls.length} 步）：\n\n` +
+            const planText = `📋 **执行计划**(共 ${toolCalls.length} 步):\n\n` +
                 toolCalls.map((call, i) => 
                     `${i + 1}. **${call.tool}** - ${call.reason}`
                 ).join('\n');
             this.addMessage('assistant', planText);
         } else {
             this.addMessage('assistant', 
-                `🔧 **准备执行：** ${toolCalls[0].tool}\n📝 ${toolCalls[0].reason}`
+                `🔧 **准备执行:** ${toolCalls[0].tool}\n📝 ${toolCalls[0].reason}`
             );
         }
 
-        let previousResult = null;
+        // 改用结果上下文字典,支持引用任意步骤的结果
+        const resultsContext = {};
         const allResults = [];
 
         for (let i = 0; i < toolCalls.length; i++) {
@@ -299,16 +298,22 @@ ${toolResultsContext}`;
             );
 
             try {
-                let params = { ...call.params };
-                if (call.usesPreviousResult && previousResult) {
-                    params = this.injectPreviousResult(params, previousResult);
-                }
+                // 解析参数,支持引用之前步骤的结果
+                const params = this.resolveParams(call.params, resultsContext, i);
 
                 const result = await this.callTool(call.tool, params);
                 this.removeLoadingMessage(executingId);
 
-                previousResult = result;
-                allResults.push({ tool: call.tool, result, params });
+                // 保存结果到上下文,使用步骤索引和工具名作为键
+                resultsContext[`step_${i}`] = result;
+                resultsContext[call.tool] = result;  // 也可以通过工具名引用
+                
+                allResults.push({ 
+                    tool: call.tool, 
+                    result, 
+                    params,
+                    stepIndex: i 
+                });
                 
                 this.toolResults.push({ tool: call.tool, result });
                 if (this.toolResults.length > 10) {
@@ -340,6 +345,56 @@ ${toolResultsContext}`;
         await this.summarizeResults(aiDecision, allResults);
     }
 
+    /**
+     * 解析参数中的引用,支持多种引用格式:
+     * - {{PREVIOUS}} - 引用上一步的结果
+     * - {{step_0}} - 引用步骤0的结果
+     * - {{read_file}} - 引用最近一次read_file工具的结果
+     */
+    resolveParams(params, resultsContext, currentStepIndex) {
+        if (!params || typeof params !== 'object') {
+            return params;
+        }
+
+        const resolved = {};
+        
+        for (const [key, value] of Object.entries(params)) {
+            resolved[key] = this.resolveValue(value, resultsContext, currentStepIndex);
+        }
+        
+        return resolved;
+    }
+
+    resolveValue(value, resultsContext, currentStepIndex) {
+        // 如果不是字符串,直接返回
+        if (typeof value !== 'string') {
+            return value;
+        }
+
+        // 替换 {{PREVIOUS}} 为上一步结果
+        if (value.includes('{{PREVIOUS}}')) {
+            const previousKey = `step_${currentStepIndex - 1}`;
+            if (resultsContext[previousKey] !== undefined) {
+                return value.replace(/\{\{PREVIOUS\}\}/g, String(resultsContext[previousKey]));
+            }
+        }
+
+        // 替换 {{step_N}} 形式的引用
+        const stepRefPattern = /\{\{step_(\d+)\}\}/g;
+        value = value.replace(stepRefPattern, (match, stepIndex) => {
+            const key = `step_${stepIndex}`;
+            return resultsContext[key] !== undefined ? String(resultsContext[key]) : match;
+        });
+
+        // 替换 {{tool_name}} 形式的引用
+        const toolRefPattern = /\{\{(\w+)\}\}/g;
+        value = value.replace(toolRefPattern, (match, toolName) => {
+            return resultsContext[toolName] !== undefined ? String(resultsContext[toolName]) : match;
+        });
+
+        return value;
+    }
+
     async summarizeResults(aiDecision, results) {
         const summaryLoadingId = this.addLoadingMessage('✨ AI 正在总结结果...');
 
@@ -350,16 +405,16 @@ ${toolResultsContext}`;
 
             const summaryPrompt = `用户的原始请求已经通过工具执行完成。
 
-**执行的工具和结果：**
+**执行的工具和结果:**
 ${resultsText}
 
-请用自然、友好的语言向用户总结执行结果。要求：
+请用自然、友好的语言向用户总结执行结果。要求:
 1. 突出关键信息
 2. 使用用户容易理解的语言
-3. 如果有具体数据，要清晰呈现
+3. 如果有具体数据,要清晰呈现
 4. 简洁但完整
 
-直接输出总结内容，不要包含任何格式标记。`;
+直接输出总结内容,不要包含任何格式标记。`;
 
             const response = await fetch(`${this.baseUrl}/api/deepseek`, {
                 method: 'POST',
@@ -381,7 +436,7 @@ ${resultsText}
 
             this.removeLoadingMessage(summaryLoadingId);
             
-            this.addMessage('assistant', `🎉 **任务完成！**\n\n${summary}`, null, true);
+            this.addMessage('assistant', `🎉 **任务完成!**\n\n${summary}`, null, true);
             
             this.conversationHistory.push({
                 role: 'assistant',
@@ -392,22 +447,11 @@ ${resultsText}
             this.removeLoadingMessage(summaryLoadingId);
             console.error('AI 总结失败:', error);
             this.addMessage('assistant', 
-                `✅ **任务完成！**\n\n最终结果：\n\n${results[results.length - 1].result}`,
+                `✅ **任务完成!**\n\n最终结果:\n\n${results[results.length - 1].result}`,
                 null,
                 true
             );
         }
-    }
-
-    injectPreviousResult(params, previousResult) {
-        const newParams = { ...params };
-        for (const key in newParams) {
-            if (typeof newParams[key] === 'string' && 
-                newParams[key].includes('[PREVIOUS_RESULT]')) {
-                newParams[key] = previousResult;
-            }
-        }
-        return newParams;
     }
 
     async callTool(toolName, params) {
