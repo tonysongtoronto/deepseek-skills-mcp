@@ -94,7 +94,7 @@ class MCPClient {
             'list_files': '📁',
             'execute_command': '⚙️',
             'current_time': '🕐',
-            'web_search_mock': '🔍',
+            'web_search': '🔍',
             'count_words': '📊'
         };
 
@@ -153,7 +153,7 @@ class MCPClient {
 
         } catch (error) {
             this.removeLoadingMessage(thinkingId);
-            this.addMessage('assistant', `❌ 出错了:${error.message}`, null, true);
+            this.addMessage('assistant', `❌ 出错了: ${error.message}`, null, true);
             console.error('处理消息失败:', error);
         }
     }
@@ -166,8 +166,16 @@ class MCPClient {
         const toolResultsContext = this.toolResults.length > 0 
             ? `\n\n最近的工具执行结果:\n${this.toolResults.slice(-3).map(r => 
                 `- ${r.tool}: ${r.result.substring(0, 200)}...`
-              ).join('\n')}`
+              ).join('\n')}` 
             : '';
+
+        // 当前日期（用于提示模型判断“昨天”是哪一天）
+        const today = new Date().toLocaleDateString('zh-CN', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            weekday: 'long'
+        });
 
         const systemPrompt = `你是一个智能助手,可以调用工具来帮助用户完成任务。
 
@@ -186,6 +194,27 @@ ${toolsDescription}
 - 参数值使用 "{{PREVIOUS}}" 表示需要使用上一步的结果
 - 也可以用 "{{step_0}}" 引用第0步的结果,或 "{{read_file}}" 引用该工具的结果
 - 如果用户只是闲聊或询问能力,不需要调用工具,直接回复即可
+
+**实时数据/金融/股市类强制规则（非常重要）:**
+- 任何涉及“股价”、“收盘价”、“开盘价”、“指数”、“道琼斯”、“Dow”、“标普500”、“S&P 500”、“纳斯达克”、“Nasdaq”、“美股”、“纽约股市”、“港股”、“A股”、“比特币”、“加密货币”、“汇率”、“外汇”、“黄金价格”、“原油价格”、“期货”等关键词的查询，**一律优先且必须先尝试使用 web_search 工具**，不要直接回复“无法查询”或“数据接口受限”。
+- 搜索关键词要写得专业、具体、带时间，例如：
+  - "Dow Jones closing price yesterday"
+  - "S&P 500 close [昨天日期]"
+  - "Nasdaq Composite closing value [日期]"
+  - "美股三大指数 [昨天日期] 收盘"
+  - site:finance.yahoo.com OR site:cnbc.com OR site:marketwatch.com "Dow Jones" close [日期]
+- 可以一次调用多个 web_search（不同关键词组合）来交叉验证数据准确性。
+- 优先使用英文查询 + 知名财经站点限制（如 site:finance.yahoo.com、site:cnbc.com、site:investing.com、site:marketwatch.com），因为数据更可靠。
+- **绝对不要**在第一次就声称“无法直接查询”或建议用户自己去网站查，而要先调用工具获取信息。
+- 如果 web_search 结果相互矛盾或明显不足，再在最终总结时说明“数据来源于多家财经媒体，建议以 Yahoo Finance / CNBC 为准”。
+- 当前日期是 ${today}，查询“昨天”时要计算为前一天。
+
+**GitHub 相关强制规则（必须严格遵守）：**
+- github_search_repos 工具**已被完全禁用**，**永远不要**尝试调用它。
+- 任何涉及 GitHub、仓库、star 数、trending、热门项目等查询，**一律且只能使用 web_search 工具**。
+- 搜索示例："github [关键词] stars" "most starred [语言] repository on github" site:github.com [关键词] "github trending [日期]"
+- 如果用户要求 JSON 格式的 star 排序列表或 API 数据，直接回复：“当前系统已禁用 GitHub API 工具，无法提供精确的 JSON 数据，以下是网页搜索到的最新信息：”
+- 不要出现任何与 GitHub API 限额相关的内容。
 
 **输出格式(JSON):**
 
@@ -241,7 +270,7 @@ ${toolResultsContext}`;
                         ...this.conversationHistory.slice(-6),
                         { role: 'user', content: userQuery }
                     ],
-                    temperature: 0.3,
+                    temperature: 0.5,
                     response_format: { type: 'json_object' }
                 })
             });
@@ -285,7 +314,6 @@ ${toolResultsContext}`;
             );
         }
 
-        // 改用结果上下文字典,支持引用任意步骤的结果
         const resultsContext = {};
         const allResults = [];
 
@@ -298,15 +326,13 @@ ${toolResultsContext}`;
             );
 
             try {
-                // 解析参数,支持引用之前步骤的结果
                 const params = this.resolveParams(call.params, resultsContext, i);
 
                 const result = await this.callTool(call.tool, params);
                 this.removeLoadingMessage(executingId);
 
-                // 保存结果到上下文,使用步骤索引和工具名作为键
                 resultsContext[`step_${i}`] = result;
-                resultsContext[call.tool] = result;  // 也可以通过工具名引用
+                resultsContext[call.tool] = result;
                 
                 allResults.push({ 
                     tool: call.tool, 
@@ -345,12 +371,6 @@ ${toolResultsContext}`;
         await this.summarizeResults(aiDecision, allResults);
     }
 
-    /**
-     * 解析参数中的引用,支持多种引用格式:
-     * - {{PREVIOUS}} - 引用上一步的结果
-     * - {{step_0}} - 引用步骤0的结果
-     * - {{read_file}} - 引用最近一次read_file工具的结果
-     */
     resolveParams(params, resultsContext, currentStepIndex) {
         if (!params || typeof params !== 'object') {
             return params;
@@ -366,12 +386,10 @@ ${toolResultsContext}`;
     }
 
     resolveValue(value, resultsContext, currentStepIndex) {
-        // 如果不是字符串,直接返回
         if (typeof value !== 'string') {
             return value;
         }
 
-        // 替换 {{PREVIOUS}} 为上一步结果
         if (value.includes('{{PREVIOUS}}')) {
             const previousKey = `step_${currentStepIndex - 1}`;
             if (resultsContext[previousKey] !== undefined) {
@@ -379,14 +397,12 @@ ${toolResultsContext}`;
             }
         }
 
-        // 替换 {{step_N}} 形式的引用
         const stepRefPattern = /\{\{step_(\d+)\}\}/g;
         value = value.replace(stepRefPattern, (match, stepIndex) => {
             const key = `step_${stepIndex}`;
             return resultsContext[key] !== undefined ? String(resultsContext[key]) : match;
         });
 
-        // 替换 {{tool_name}} 形式的引用
         const toolRefPattern = /\{\{(\w+)\}\}/g;
         value = value.replace(toolRefPattern, (match, toolName) => {
             return resultsContext[toolName] !== undefined ? String(resultsContext[toolName]) : match;

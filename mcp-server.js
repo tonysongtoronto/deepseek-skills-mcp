@@ -13,7 +13,7 @@ const server = new Server(
   { capabilities: { tools: {} } }
 );
 
-// 2. 声明所有工具
+// 2. 声明所有工具（已移除 github_search_repos）
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
@@ -93,44 +93,41 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ['query']
         }
-      },
-      {
-        name: 'github_search_repos',
-        description: '搜索 GitHub 仓库（按 star 数降序）',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            query: {
-              type: 'string',
-              description: '搜索关键词，支持 GitHub 高级语法'
-            },
-            language: {
-              type: 'string',
-              description: '编程语言（可选，例如 python、javascript）'
-            },
-            per_page: {
-              type: 'number',
-              description: '每页返回数量（默认5，最多10）'
-            }
-          },
-          required: ['query']
-        }
       }
     ]
   };
 });
 
-// 3. 处理工具逻辑
+// 3. 处理工具逻辑（已移除 github_search_repos 相关代码）
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args = {} } = request.params;
 
   try {
+    async function translateToEnglish(query) {
+      const axios = require('axios');
+      try {
+        const response = await axios.post('http://localhost:3001/api/deepseek', {
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: 'You are a translator. Translate the following text to English accurately.' },
+            { role: 'user', content: query }
+          ],
+          temperature: 0.1
+        });
+        return response.data.choices[0].message.content.trim();
+      } catch (error) {
+        console.error('Translation failed:', error);
+        return query; // Fallback to original
+      }
+    }
+
     switch (name) {
       case 'web_search': {
         const axios = require('axios');
 
-        const query = args.query?.trim();
+        let query = args.query?.trim();
         const limit = Math.min(args.limit || 10, 20);
+        let halfLimit = Math.floor(limit / 2);
 
         if (!query) {
           return { content: [{ type: 'text', text: "搜索失败：查询词不能为空" }], isError: true };
@@ -144,31 +141,54 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
 
-        const response = await axios.get('https://api.search.brave.com/res/v1/web/search', {
-          params: {
-            q: query,
-            count: limit,
-            safesearch: 'off'
-          },
-          headers: {
-            'Accept': 'application/json',
-            'Accept-Encoding': 'identity',
-            'X-Subscription-Token': braveKey
-          },
-          timeout: 12000
-        });
+        const hasChinese = /[\u4e00-\u9fff]/.test(query);
+        let queries = [query];
+        if (hasChinese) {
+          const englishQuery = await translateToEnglish(query);
+          queries.push(englishQuery);
+        }
 
-        const data = response.data;
-        const results = data.web?.results || [];
+        let allResults = [];
 
-        if (results.length === 0) {
+        for (const q of queries) {
+          const response = await axios.get('https://api.search.brave.com/res/v1/web/search', {
+            params: {
+              q: q,
+              count: hasChinese ? halfLimit : limit,
+              safesearch: 'off'
+            },
+            headers: {
+              'Accept': 'application/json',
+              'Accept-Encoding': 'identity',
+              'X-Subscription-Token': braveKey
+            },
+            timeout: 12000
+          });
+
+          const data = response.data;
+          const results = data.web?.results || [];
+          allResults = allResults.concat(results);
+        }
+
+        const uniqueResults = [];
+        const seenUrls = new Set();
+        for (const item of allResults) {
+          if (!seenUrls.has(item.url)) {
+            seenUrls.add(item.url);
+            uniqueResults.push(item);
+          }
+        }
+
+        uniqueResults.splice(limit);
+
+        if (uniqueResults.length === 0) {
           return {
             content: [{ type: 'text', text: "搜索完成但没有结果" }],
             isError: true
           };
         }
 
-        const formatted = results.map(item => ({
+        const formatted = uniqueResults.map(item => ({
           title: item.title || '无标题',
           url: item.url || '#',
           description: item.description || item.snippet || '无描述',
@@ -227,61 +247,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case 'github_search_repos': {
-        const { Octokit } = require('@octokit/rest');
-
-        const octokit = process.env.GITHUB_TOKEN
-          ? new Octokit({ auth: process.env.GITHUB_TOKEN })
-          : new Octokit();
-
-        let searchQuery = args.query.trim();
-        if (args.language) {
-          searchQuery += ` language:${args.language}`;
-        }
-
-        const perPage = Math.min(Math.max(1, Number(args.per_page) || 5), 10);
-
-        const { data } = await octokit.search.repos({
-          q: searchQuery,
-          sort: 'stars',
-          order: 'desc',
-          per_page: perPage,
-          page: 1
-        });
-
-        const slimItems = data.items.map(repo => ({
-          full_name: repo.full_name,
-          html_url: repo.html_url,
-          description: repo.description || '',
-          stargazers_count: repo.stargazers_count,
-          language: repo.language || 'Unknown',
-          updated_at: repo.updated_at,
-          forks_count: repo.forks_count,
-          open_issues: repo.open_issues_count || 0
-        }));
-
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              total_count: data.total_count,
-              items: slimItems
-            }, null, 2)
-          }]
-        };
-      }
-
       default:
-        throw new Error(`工具 ${name} 尚未定义`);
+        throw new Error(`工具 ${name} 不存在或未实现`);
     }
   } catch (error) {
     console.error(`工具执行错误 [${name}]:`, error);
 
     let msg = error.message || '未知错误';
 
-    if (error.status === 403 || error.status === 429) {
-      msg = 'GitHub API 速率限制，请稍后再试（或设置 GITHUB_TOKEN 提高限制）';
-    } else if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
       msg = '网络连接问题，请检查网络或稍后重试';
     }
 
@@ -296,7 +270,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('DeepSeek 终极技能服务器已就绪 (含 GitHub 搜索 v1.3.1)');
+  console.error('DeepSeek 终极技能服务器已就绪 (v1.3.1)');
 }
 
 main().catch(console.error);
