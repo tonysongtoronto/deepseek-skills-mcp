@@ -552,65 +552,111 @@ ${toolResultsContext}`;
         return value;
     }
 
-    async summarizeResults(aiDecision, results) {
-        const summaryLoadingId = this.addLoadingMessage('✨ AI 正在总结结果...');
+   // (前面的代码保持不变...)
 
-        try {
-            const resultsText = results.map(r => 
-                `**${r.tool}**: ${r.result.substring(0, 1000)}`
-            ).join('\n\n');
+async summarizeResults(aiDecision, results) {
+    const summaryLoadingId = this.addLoadingMessage('✨ AI 正在总结结果...');
 
-            const summaryPrompt = `用户的原始请求已经通过工具执行完成。
+    try {
+        // 检查是否有失败的步骤
+        const failedSteps = results.filter(r => r.failed);
+        const successSteps = results.filter(r => !r.failed);
+        
+        let contextInfo = '';
+        
+        if (failedSteps.length > 0) {
+            contextInfo = '\n\n**执行情况说明:**\n';
+            contextInfo += `- 成功: ${successSteps.length} 步\n`;
+            contextInfo += `- 失败: ${failedSteps.length} 步\n\n`;
+            
+            failedSteps.forEach(step => {
+                if (step.error && step.error.includes('403')) {
+                    contextInfo += `⚠️ ${step.tool} 遇到访问限制（网站反爬保护）\n`;
+                } else {
+                    contextInfo += `⚠️ ${step.tool} 失败: ${step.error}\n`;
+                }
+            });
+            
+            contextInfo += '\n**请基于成功获取的信息给出回答，并说明哪些资源无法访问。**\n';
+        }
+
+        const resultsText = successSteps.map(r => 
+            `**${r.tool}**: ${r.result.substring(0, 1500)}`
+        ).join('\n\n');
+
+        const summaryPrompt = `用户的原始请求已经通过工具执行。
 
 **执行的工具和结果:**
 ${resultsText}
+
+${contextInfo}
 
 请用自然、友好的语言向用户总结执行结果。要求:
 1. 突出关键信息
 2. 使用用户容易理解的语言
 3. 如果有具体数据,要清晰呈现
-4. 简洁但完整
+4. 如果某些资源无法访问（如 Medium 403 错误），说明原因并基于其他可用资源给出回答
+5. 简洁但完整
 
 直接输出总结内容,不要包含任何格式标记。`;
 
-            const response = await fetch(`${this.baseUrl}/api/deepseek`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    model: 'deepseek-chat',
-                    messages: [
-                        ...this.conversationHistory.slice(-4),
-                        { role: 'user', content: summaryPrompt }
-                    ],
-                    temperature: 0.7
-                })
-            });
+        const response = await fetch(`${this.baseUrl}/api/deepseek`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: [
+                    ...this.conversationHistory.slice(-4),
+                    { role: 'user', content: summaryPrompt }
+                ],
+                temperature: 0.7
+            })
+        });
 
-            const data = await response.json();
-            const summary = data.choices[0].message.content;
+        const data = await response.json();
+        const summary = data.choices[0].message.content;
 
-            this.removeLoadingMessage(summaryLoadingId);
-            
-            this.addMessage('assistant', `🎉 **任务完成!**\n\n${summary}`, null, true);
-            
-            this.conversationHistory.push({
-                role: 'assistant',
-                content: summary
-            });
+        this.removeLoadingMessage(summaryLoadingId);
+        
+        // 根据成功率选择不同的图标
+        let statusIcon = '🎉';
+        if (failedSteps.length > 0 && successSteps.length === 0) {
+            statusIcon = '❌';
+        } else if (failedSteps.length > 0) {
+            statusIcon = '⚠️';
+        }
+        
+        this.addMessage('assistant', `${statusIcon} **任务完成!**\n\n${summary}`, null, true);
+        
+        this.conversationHistory.push({
+            role: 'assistant',
+            content: summary
+        });
 
-        } catch (error) {
-            this.removeLoadingMessage(summaryLoadingId);
-            console.error('AI 总结失败:', error);
+    } catch (error) {
+        this.removeLoadingMessage(summaryLoadingId);
+        console.error('AI 总结失败:', error);
+        
+        // 即使 AI 总结失败，也要给用户看到结果
+        const successResults = results.filter(r => !r.failed);
+        if (successResults.length > 0) {
+            const lastResult = successResults[successResults.length - 1];
             this.addMessage('assistant', 
-                `✅ **任务完成!**\n\n最终结果:\n\n${results[results.length - 1].result}`,
+                `✅ **任务完成!**\n\n最终结果:\n\n${lastResult.result.substring(0, 1000)}`,
+                null,
+                true
+            );
+        } else {
+            this.addMessage('assistant', 
+                `❌ **所有步骤都失败了**\n\n可能原因:\n- 网站有反爬保护\n- 网络连接问题\n- API 限制\n\n建议尝试其他搜索关键词或稍后重试。`,
                 null,
                 true
             );
         }
     }
-
+}
     async callTool(toolName, params) {
         try {
             console.log(`[调用工具] ${toolName}`, params);

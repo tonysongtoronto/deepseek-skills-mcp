@@ -205,26 +205,134 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       }
 
       case 'fetch_url': {
-
-        
-        console.error('==================================');
-
         console.error(`🌐 抓取: ${args.url}`);
-        console.error('==================================');
+        
+        // 检测 Medium 文章，尝试 RSS 方式
+        if (args.url.includes('medium.com')) {
+          console.error('📰 检测到 Medium 文章，尝试 RSS 方式...');
+          try {
+            // 从 URL 提取用户名和文章 slug
+            const urlMatch = args.url.match(/medium\.com\/@([^\/]+)\/([^\/\?]+)/);
+            if (urlMatch) {
+              const username = urlMatch[1];
+              const rssUrl = `https://medium.com/feed/@${username}`;
+              
+              console.error(`📡 尝试获取 RSS: ${rssUrl}`);
+              
+              const rssRes = await axios.get(rssUrl, {
+                headers: { 
+                  'User-Agent': 'Mozilla/5.0 (compatible; RSS Reader)',
+                  'Accept': 'application/rss+xml, application/xml, text/xml'
+                },
+                timeout: 15000
+              });
+              
+              const $ = cheerio.load(rssRes.data, { xmlMode: true });
+              const items = $('item');
+              
+              // 查找匹配的文章
+              let articleContent = '';
+              items.each((i, item) => {
+                const link = $(item).find('link').text();
+                if (link.includes(args.url) || args.url.includes(link)) {
+                  const title = $(item).find('title').text();
+                  const description = $(item).find('description').text();
+                  const content = $(item).find('content\\:encoded, encoded').text();
+                  
+                  articleContent = `标题: ${title}\n\n${content || description}`;
+                  
+                  // 清理 HTML
+                  const $clean = cheerio.load(articleContent);
+                  articleContent = $clean.text().replace(/\s+/g, ' ').trim();
+                  
+                  console.error(`✅ 通过 RSS 获取成功`);
+                  return false; // break
+                }
+              });
+              
+              if (articleContent) {
+                return { 
+                  content: [{ 
+                    type: 'text', 
+                    text: articleContent.substring(0, 8000)
+                  }] 
+                };
+              }
+            }
+          } catch (rssError) {
+            console.error(`⚠️ RSS 获取失败: ${rssError.message}`);
+          }
+        }
+        
+        // 常规抓取方式
+        const userAgents = [
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15'
+        ];
+        
+        const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
         
         const fRes = await axios.get(args.url, {
           headers: { 
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0', 
-            'Referer': 'https://google.com'
+            'User-Agent': randomUA,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+            'Referer': 'https://www.google.com/'
           },
-          timeout: 30000 
+          timeout: 30000,
+          maxRedirects: 5,
+          validateStatus: (status) => status < 500
         });
         
-        const $ = cheerio.load(fRes.data);
-        $('script, style, nav, footer, iframe, header').remove();
+        if (fRes.status === 403 || fRes.status === 429) {
+          throw new Error(`网站拒绝访问 (${fRes.status})。建议：1) 尝试搜索其他资源 2) 访问原网站查看内容`);
+        }
         
-        let body = $('article').length ? $('article').text() : $('body').text();
-        body = body.replace(/\s+/g, ' ').trim().substring(0, 8000);
+        const $ = cheerio.load(fRes.data);
+        $('script, style, nav, footer, iframe, header, aside, .ad, .advertisement').remove();
+        
+        let body = '';
+        const contentSelectors = [
+          'article',
+          'main',
+          '[role="main"]',
+          '.article-content',
+          '.post-content',
+          '.entry-content',
+          '#content',
+          '.content'
+        ];
+        
+        for (const selector of contentSelectors) {
+          const element = $(selector);
+          if (element.length && element.text().trim().length > 100) {
+            body = element.text();
+            console.error(`✅ 使用选择器提取内容: ${selector}`);
+            break;
+          }
+        }
+        
+        if (!body) {
+          body = $('body').text();
+          console.error(`⚠️ 使用 body 提取内容`);
+        }
+        
+        body = body
+          .replace(/\s+/g, ' ')
+          .replace(/\n+/g, '\n')
+          .trim()
+          .substring(0, 8000);
         
         console.error(`✅ 抓取成功，内容长度: ${body.length}`);
         
