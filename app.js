@@ -1,4 +1,4 @@
-// MCP 客户端类 - 安全版本(API密钥在服务器端)
+// MCP 客户端类 - 安全版本(API密钥在服务器端) - 增强调试版
 class MCPClient {
     constructor() {
         this.baseUrl = 'http://localhost:3001';
@@ -95,7 +95,8 @@ class MCPClient {
             'execute_command': '⚙️',
             'current_time': '🕐',
             'web_search': '🔍',
-            'count_words': '📊'
+            'count_words': '📊',
+            'fetch_url': '🌐'
         };
 
         toolsList.innerHTML = this.tools.map(tool => `
@@ -169,7 +170,6 @@ class MCPClient {
               ).join('\n')}` 
             : '';
 
-        // 当前日期（用于提示模型判断“昨天”是哪一天）
         const today = new Date().toLocaleDateString('zh-CN', {
             year: 'numeric',
             month: 'long',
@@ -189,71 +189,66 @@ ${toolsDescription}
 4. 如果不需要,直接用自然语言回复用户
 
 **重要规则:**
-- 对于需要多步骤的任务(如"读取文件并统计字数"),必须规划多个工具调用
+- 对于需要多步骤的任务,必须规划多个工具调用
 - 工具调用要有明确的顺序和依赖关系
-- 参数值使用 "{{PREVIOUS}}" 表示需要使用上一步的结果
-- 也可以用 "{{step_0}}" 引用第0步的结果,或 "{{read_file}}" 引用该工具的结果
 - 如果用户只是闲聊或询问能力,不需要调用工具,直接回复即可
 
-**实时数据/金融/股市类强制规则（非常重要）:**
-- 任何涉及“股价”、“收盘价”、“开盘价”、“指数”、“道琼斯”、“Dow”、“标普500”、“S&P 500”、“纳斯达克”、“Nasdaq”、“美股”、“纽约股市”、“港股”、“A股”、“比特币”、“加密货币”、“汇率”、“外汇”、“黄金价格”、“原油价格”、“期货”等关键词的查询，**一律优先且必须先尝试使用 web_search 工具**，不要直接回复“无法查询”或“数据接口受限”。
-- 搜索关键词要写得专业、具体、带时间，例如：
-  - "Dow Jones closing price yesterday"
-  - "S&P 500 close [昨天日期]"
-  - "Nasdaq Composite closing value [日期]"
-  - "美股三大指数 [昨天日期] 收盘"
-  - site:finance.yahoo.com OR site:cnbc.com OR site:marketwatch.com "Dow Jones" close [日期]
-- 可以一次调用多个 web_search（不同关键词组合）来交叉验证数据准确性。
-- 优先使用英文查询 + 知名财经站点限制（如 site:finance.yahoo.com、site:cnbc.com、site:investing.com、site:marketwatch.com），因为数据更可靠。
-- **绝对不要**在第一次就声称“无法直接查询”或建议用户自己去网站查，而要先调用工具获取信息。
-- 如果 web_search 结果相互矛盾或明显不足，再在最终总结时说明“数据来源于多家财经媒体，建议以 Yahoo Finance / CNBC 为准”。
-- 当前日期是 ${today}，查询“昨天”时要计算为前一天。
+**🚨 web_search 速率限制 - 非常重要!**
+- web_search 工具有严格的速率限制: **每分钟最多4次,每月2000次**
+- **务必优化搜索策略,减少搜索次数!**
+- 推荐策略:
+  1. 单个主题: 只用1次 web_search,limit设为5-10
+  2. 多个主题: 每个主题1次搜索,避免重复
+  3. 搜索后用 fetch_url 获取详情(无限制)
 
-**GitHub 相关强制规则（必须严格遵守）：**
-- github_search_repos 工具**已被完全禁用**，**永远不要**尝试调用它。
-- 任何涉及 GitHub、仓库、star 数、trending、热门项目等查询，**一律且只能使用 web_search 工具**。
-- 搜索示例："github [关键词] stars" "most starred [语言] repository on github" site:github.com [关键词] "github trending [日期]"
-- 如果用户要求 JSON 格式的 star 排序列表或 API 数据，直接回复：“当前系统已禁用 GitHub API 工具，无法提供精确的 JSON 数据，以下是网页搜索到的最新信息：”
-- 不要出现任何与 GitHub API 限额相关的内容。
+**参数引用规则:**
+- 引用搜索结果URL: "{{search_result_0}}", "{{search_result_1}}" 等
+- 引用上一步结果: "{{PREVIOUS}}"
+- 引用特定步骤: "{{step_0}}", "{{step_1}}" 等
+
+**正确示例:**
+{
+  "needsTools": true,
+  "thinking": "搜索React性能优化,然后获取前3个结果的详细内容",
+  "toolCalls": [
+    {
+      "tool": "web_search",
+      "params": {"query": "React performance optimization 2026", "limit": 5},
+      "reason": "搜索React性能优化文章"
+    },
+    {
+      "tool": "fetch_url",
+      "params": {"url": "{{search_result_0}}"},
+      "reason": "获取第1篇文章详情"
+    },
+    {
+      "tool": "fetch_url",
+      "params": {"url": "{{search_result_1}}"},
+      "reason": "获取第2篇文章详情"
+    },
+    {
+      "tool": "fetch_url",
+      "params": {"url": "{{search_result_2}}"},
+      "reason": "获取第3篇文章详情"
+    }
+  ]
+}
 
 **输出格式(JSON):**
-
 不需要工具时:
 {
   "needsTools": false,
   "response": "你的回复内容"
 }
 
-需要单个工具时:
+需要工具时:
 {
   "needsTools": true,
   "thinking": "我的思考过程",
-  "toolCalls": [
-    {
-      "tool": "工具名",
-      "params": {"参数": "值"},
-      "reason": "为什么使用这个工具"
-    }
-  ]
+  "toolCalls": [工具调用数组]
 }
 
-需要多个工具时:
-{
-  "needsTools": true,
-  "thinking": "我的思考过程",
-  "toolCalls": [
-    {
-      "tool": "read_file",
-      "params": {"path": "demo.txt"},
-      "reason": "先读取文件内容"
-    },
-    {
-      "tool": "count_words",
-      "params": {"text": "{{PREVIOUS}}"},
-      "reason": "对读取的内容进行字数统计"
-    }
-  ]
-}
+当前日期: ${today}
 
 ${toolResultsContext}`;
 
@@ -325,21 +320,78 @@ ${toolResultsContext}`;
                 `⚙️ 执行步骤 ${stepNum}/${toolCalls.length}: ${call.tool}...`
             );
 
+            // ✅ 在 try 外部声明 params
+            let params;
+
             try {
-                const params = this.resolveParams(call.params, resultsContext, i);
+                console.log(`\n${'='.repeat(70)}`);
+                console.log(`[步骤 ${i}] 工具: ${call.tool}`);
+                console.log(`[步骤 ${i}] 原始参数:`, JSON.stringify(call.params, null, 2));
+                console.log(`[步骤 ${i}] 当前 allResults 数量: ${allResults.length}`);
+                
+                if (allResults.length > 0) {
+                    console.log(`[步骤 ${i}] allResults 内容:`);
+                    allResults.forEach((r, idx) => {
+                        console.log(`  [${idx}] tool=${r.tool}, resultLength=${r.result.length}`);
+                        if (r.tool === 'web_search') {
+                            console.log(`  [${idx}] web_search 结果预览:`, r.result.substring(0, 200));
+                        }
+                    });
+                }
+
+                // ✅ 赋值 params
+                params = this.resolveParams(call.params, resultsContext, i, allResults);
+
+                console.log(`[步骤 ${i}] 解析后参数:`, JSON.stringify(params, null, 2));
+                console.log(`${'='.repeat(70)}\n`);
 
                 const result = await this.callTool(call.tool, params);
                 this.removeLoadingMessage(executingId);
 
+                console.log(`✅ [步骤 ${i}] 工具 ${call.tool} 返回成功, 结果长度: ${result.length}`);
+                console.log(`   结果预览: ${result.substring(0, 150)}...`);
+
+                // ✅ 检查 web_search 结果是否为空
+                if (call.tool === 'web_search') {
+                    try {
+                        const searchResults = JSON.parse(result);
+                        if (!Array.isArray(searchResults) || searchResults.length === 0) {
+                            console.error(`❌ web_search 返回空结果，终止执行`);
+                            this.removeLoadingMessage(executingId);
+                            this.addMessage('assistant', 
+                                `⚠️ **搜索未找到结果**\n\n请尝试更换关键词或稍后重试。`,
+                                null,
+                                true
+                            );
+                            return;
+                        }
+                    } catch (e) {
+                        console.error(`❌ web_search 结果解析失败:`, e);
+                        this.removeLoadingMessage(executingId);
+                        this.addMessage('assistant', 
+                            `❌ **搜索结果格式错误**\n\n${e.message}`,
+                            null,
+                            true
+                        );
+                        return;
+                    }
+                }
+
                 resultsContext[`step_${i}`] = result;
                 resultsContext[call.tool] = result;
                 
-                allResults.push({ 
+                const resultEntry = { 
                     tool: call.tool, 
                     result, 
                     params,
-                    stepIndex: i 
-                });
+                    stepIndex: i,
+                    failed: false
+                };
+                
+                allResults.push(resultEntry);
+                
+                console.log(`✅ [步骤 ${i}] 完成并已添加到 allResults`);
+                console.log(`   allResults 当前长度: ${allResults.length}`);
                 
                 this.toolResults.push({ tool: call.tool, result });
                 if (this.toolResults.length > 10) {
@@ -359,19 +411,54 @@ ${toolResultsContext}`;
 
             } catch (error) {
                 this.removeLoadingMessage(executingId);
+                
+                let errorDetails = error.message;
+                if (error.stack) {
+                    console.error('完整错误堆栈:', error.stack);
+                }
+                
+                // ✅ 现在 params 可以正常使用了
+                allResults.push({ 
+                    tool: call.tool, 
+                    result: '', 
+                    params: params || call.params, // 如果 resolveParams 失败，用原始参数
+                    stepIndex: i,
+                    failed: true,
+                    error: errorDetails
+                });
+                
+                console.error(`❌ [步骤 ${i}] 失败: ${call.tool}, 错误: ${errorDetails}`);
+                console.error(`⚠️  allResults 已更新 (包含失败记录), 当前长度: ${allResults.length}`);
+                
                 this.addMessage('assistant', 
-                    `❌ 步骤 ${stepNum} 失败: ${error.message}`,
+                    `❌ 步骤 ${stepNum} 失败\n\n` +
+                    `**工具:** ${call.tool}\n` +
+                    `**错误:** ${errorDetails}\n\n` +
+                    `**参数:** \`${JSON.stringify(params || call.params)}\``,
                     null,
                     true
                 );
-                return;
+                
+                // 如果是搜索步骤失败，后续依赖搜索结果的步骤都会失败，应该直接停止
+                if (call.tool === 'web_search') {
+                    console.error(`❌ web_search 失败，终止执行`);
+                    this.addMessage('assistant', 
+                        `⚠️ **搜索失败，无法继续执行后续步骤**\n\n请稍后重试或更换搜索关键词。`,
+                        null,
+                        true
+                    );
+                    return;
+                }
+                
+                console.warn(`步骤 ${stepNum} 失败，继续执行...`);
+                continue;
             }
         }
 
         await this.summarizeResults(aiDecision, allResults);
     }
 
-    resolveParams(params, resultsContext, currentStepIndex) {
+    resolveParams(params, resultsContext, currentStepIndex, allResults) {
         if (!params || typeof params !== 'object') {
             return params;
         }
@@ -379,33 +466,87 @@ ${toolResultsContext}`;
         const resolved = {};
         
         for (const [key, value] of Object.entries(params)) {
-            resolved[key] = this.resolveValue(value, resultsContext, currentStepIndex);
+            resolved[key] = this.resolveValue(value, resultsContext, currentStepIndex, allResults);
         }
         
         return resolved;
     }
 
-    resolveValue(value, resultsContext, currentStepIndex) {
+    resolveValue(value, resultsContext, currentStepIndex, allResults) {
         if (typeof value !== 'string') {
             return value;
         }
 
+        console.log(`  [参数解析] 原始值: "${value}"`);
+
+        // 处理 {{search_result_N}}
+        const searchResultPattern = /\{\{search_result_(\d+)\}\}/g;
+        let hasMatch = false;
+        
+        value = value.replace(searchResultPattern, (match, index) => {
+            hasMatch = true;
+            console.log(`  [参数解析] 检测到占位符: ${match}`);
+            
+            // 从后往前找最近的 web_search 结果
+            for (let i = allResults.length - 1; i >= 0; i--) {
+                console.log(`  [参数解析] 检查 allResults[${i}], tool=${allResults[i].tool}`);
+                
+                if (allResults[i].tool === 'web_search') {
+                    console.log(`  [参数解析] ✓ 找到 web_search (步骤 ${i})`);
+                    console.log(`  [参数解析] result 类型:`, typeof allResults[i].result);
+                    console.log(`  [参数解析] result 前100字符:`, allResults[i].result.substring(0, 100));
+                    
+                    try {
+                        const searchResults = JSON.parse(allResults[i].result);
+                        console.log(`  [参数解析] JSON解析成功, 数组长度: ${searchResults.length}`);
+                        
+                        const idx = parseInt(index);
+                        console.log(`  [参数解析] 请求索引: ${idx}`);
+                        
+                        if (Array.isArray(searchResults) && idx < searchResults.length && searchResults[idx]) {
+                            const url = searchResults[idx].url;
+                            console.log(`  [参数解析] ✅ 成功! ${match} => ${url}`);
+                            return url;
+                        } else {
+                            console.warn(`  [参数解析] ❌ 索引 ${idx} 超出范围或无效 (数组长度: ${searchResults.length})`);
+                            if (searchResults[idx]) {
+                                console.warn(`  [参数解析] 元素内容:`, searchResults[idx]);
+                            }
+                        }
+                    } catch (e) {
+                        console.error(`  [参数解析] ❌ JSON解析失败:`, e.message);
+                        console.error(`  [参数解析] 原始数据:`, allResults[i].result);
+                    }
+                    break;
+                }
+            }
+            
+            console.warn(`  [参数解析] ❌ 未能解析 ${match}, 保留原值`);
+            return match;
+        });
+
+        if (hasMatch) {
+            console.log(`  [参数解析] 最终值: "${value}"`);
+        }
+
+        // 处理 {{PREVIOUS}}
         if (value.includes('{{PREVIOUS}}')) {
             const previousKey = `step_${currentStepIndex - 1}`;
             if (resultsContext[previousKey] !== undefined) {
-                return value.replace(/\{\{PREVIOUS\}\}/g, String(resultsContext[previousKey]));
+                value = value.replace(/\{\{PREVIOUS\}\}/g, String(resultsContext[previousKey]));
+                console.log(`  [参数解析] {{PREVIOUS}} => step_${currentStepIndex - 1}`);
             }
         }
 
+        // 处理 {{step_N}}
         const stepRefPattern = /\{\{step_(\d+)\}\}/g;
         value = value.replace(stepRefPattern, (match, stepIndex) => {
             const key = `step_${stepIndex}`;
-            return resultsContext[key] !== undefined ? String(resultsContext[key]) : match;
-        });
-
-        const toolRefPattern = /\{\{(\w+)\}\}/g;
-        value = value.replace(toolRefPattern, (match, toolName) => {
-            return resultsContext[toolName] !== undefined ? String(resultsContext[toolName]) : match;
+            if (resultsContext[key] !== undefined) {
+                console.log(`  [参数解析] ${match} => step_${stepIndex}`);
+                return String(resultsContext[key]);
+            }
+            return match;
         });
 
         return value;
@@ -416,7 +557,7 @@ ${toolResultsContext}`;
 
         try {
             const resultsText = results.map(r => 
-                `**${r.tool}**: ${r.result.substring(0, 500)}`
+                `**${r.tool}**: ${r.result.substring(0, 1000)}`
             ).join('\n\n');
 
             const summaryPrompt = `用户的原始请求已经通过工具执行完成。
@@ -472,6 +613,8 @@ ${resultsText}
 
     async callTool(toolName, params) {
         try {
+            console.log(`[调用工具] ${toolName}`, params);
+            
             const response = await fetch(`${this.baseUrl}/api/tools`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -483,15 +626,40 @@ ${resultsText}
             });
 
             const data = await response.json();
+            console.log(`[工具响应] ${toolName}`, data);
 
             if (data.error) {
-                throw new Error(data.error.message);
+                const errorMsg = data.error.message || JSON.stringify(data.error);
+                console.error(`[工具错误] ${toolName}:`, errorMsg);
+                throw new Error(errorMsg);
             }
 
-            return data.result.content[0].text;
+            if (!data.result || !data.result.content || !data.result.content[0]) {
+                console.error(`[工具错误] ${toolName}: 响应格式异常`, data);
+                throw new Error('工具返回了无效的响应格式');
+            }
+
+            const resultText = data.result.content[0].text;
+            console.log(`[工具成功] ${toolName}: ${resultText.substring(0, 100)}...`);
+            
+            return resultText;
 
         } catch (error) {
-            throw new Error(`工具调用失败: ${error.message}`);
+            console.error(`[callTool 异常] ${toolName}:`, error);
+            
+            let errorMessage = '工具调用失败';
+            
+            if (error.message) {
+                errorMessage += `: ${error.message}`;
+            } else {
+                errorMessage += ': 未知错误';
+            }
+            
+            if (error instanceof TypeError && error.message.includes('fetch')) {
+                errorMessage = '网络请求失败，请检查服务器是否正常运行';
+            }
+            
+            throw new Error(errorMessage);
         }
     }
 
