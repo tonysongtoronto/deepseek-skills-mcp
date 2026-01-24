@@ -207,69 +207,89 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       case 'fetch_url': {
         console.error(`🌐 抓取: ${args.url}`);
         
-        // 检测 Medium 文章，尝试 RSS 方式
+        // 检测 Medium 文章，尝试多种方式
         if (args.url.includes('medium.com')) {
-          console.error('📰 检测到 Medium 文章，尝试 RSS 方式...');
+          console.error('📰 检测到 Medium 文章，尝试特殊处理...');
+          
+          // 方式 1: 尝试 Scribe (Medium 的开源前端)
           try {
-            // 从 URL 提取用户名和文章 slug
-            const urlMatch = args.url.match(/medium\.com\/@([^\/]+)\/([^\/\?]+)/);
-            if (urlMatch) {
-              const username = urlMatch[1];
-              const rssUrl = `https://medium.com/feed/@${username}`;
+            const scribeUrl = args.url.replace('medium.com', 'scribe.rip');
+            console.error(`🔄 尝试 Scribe 镜像: ${scribeUrl}`);
+            
+            const scribeRes = await axios.get(scribeUrl, {
+              headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0',
+                'Accept': 'text/html'
+              },
+              timeout: 15000,
+              validateStatus: (status) => status < 500
+            });
+            
+            if (scribeRes.status === 200) {
+              const $ = cheerio.load(scribeRes.data);
+              $('script, style, nav, footer, header, .sidebar').remove();
               
-              console.error(`📡 尝试获取 RSS: ${rssUrl}`);
+              let content = $('article, main, .article-content').text() || $('body').text();
+              content = content.replace(/\s+/g, ' ').trim().substring(0, 8000);
               
-              const rssRes = await axios.get(rssUrl, {
-                headers: { 
-                  'User-Agent': 'Mozilla/5.0 (compatible; RSS Reader)',
-                  'Accept': 'application/rss+xml, application/xml, text/xml'
-                },
-                timeout: 15000
-              });
-              
-              const $ = cheerio.load(rssRes.data, { xmlMode: true });
-              const items = $('item');
-              
-              // 查找匹配的文章
-              let articleContent = '';
-              items.each((i, item) => {
-                const link = $(item).find('link').text();
-                if (link.includes(args.url) || args.url.includes(link)) {
-                  const title = $(item).find('title').text();
-                  const description = $(item).find('description').text();
-                  const content = $(item).find('content\\:encoded, encoded').text();
-                  
-                  articleContent = `标题: ${title}\n\n${content || description}`;
-                  
-                  // 清理 HTML
-                  const $clean = cheerio.load(articleContent);
-                  articleContent = $clean.text().replace(/\s+/g, ' ').trim();
-                  
-                  console.error(`✅ 通过 RSS 获取成功`);
-                  return false; // break
-                }
-              });
-              
-              if (articleContent) {
+              if (content.length > 200) {
+                console.error(`✅ 通过 Scribe 获取成功，长度: ${content.length}`);
                 return { 
                   content: [{ 
                     type: 'text', 
-                    text: articleContent.substring(0, 8000)
+                    text: content
                   }] 
                 };
               }
             }
-          } catch (rssError) {
-            console.error(`⚠️ RSS 获取失败: ${rssError.message}`);
+          } catch (scribeError) {
+            console.error(`⚠️ Scribe 失败: ${scribeError.message}`);
           }
+          
+          // 方式 2: 尝试 Freedium
+          try {
+            const freediumUrl = `https://freedium.cfd/${args.url}`;
+            console.error(`🔄 尝试 Freedium: ${freediumUrl}`);
+            
+            const freediumRes = await axios.get(freediumUrl, {
+              headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0'
+              },
+              timeout: 15000,
+              validateStatus: (status) => status < 500
+            });
+            
+            if (freediumRes.status === 200) {
+              const $ = cheerio.load(freediumRes.data);
+              $('script, style, nav, footer, header').remove();
+              
+              let content = $('article, main, #content').text() || $('body').text();
+              content = content.replace(/\s+/g, ' ').trim().substring(0, 8000);
+              
+              if (content.length > 200) {
+                console.error(`✅ 通过 Freedium 获取成功，长度: ${content.length}`);
+                return { 
+                  content: [{ 
+                    type: 'text', 
+                    text: content
+                  }] 
+                };
+              }
+            }
+          } catch (freediumError) {
+            console.error(`⚠️ Freedium 失败: ${freediumError.message}`);
+          }
+          
+          // 如果所有 Medium 特殊方式都失败，抛出友好错误
+          console.error(`❌ Medium 文章无法访问，所有方式均已尝试`);
+          throw new Error(`Medium 文章受保护无法访问。建议：搜索该主题的其他资源或直接访问原文`);
         }
         
-        // 常规抓取方式
+        // 常规网站抓取
         const userAgents = [
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
           'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15'
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0'
         ];
         
         const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
@@ -277,17 +297,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         const fRes = await axios.get(args.url, {
           headers: { 
             'User-Agent': randomUA,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
             'Accept-Encoding': 'gzip, deflate, br',
-            'DNT': '1',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Cache-Control': 'max-age=0',
             'Referer': 'https://www.google.com/'
           },
           timeout: 30000,
@@ -295,12 +309,20 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           validateStatus: (status) => status < 500
         });
         
-        if (fRes.status === 403 || fRes.status === 429) {
-          throw new Error(`网站拒绝访问 (${fRes.status})。建议：1) 尝试搜索其他资源 2) 访问原网站查看内容`);
+        if (fRes.status === 403) {
+          throw new Error(`网站拒绝访问 (403)。建议：跳过此链接，使用其他资源`);
+        }
+        
+        if (fRes.status === 429) {
+          throw new Error(`请求过于频繁 (429)。建议：稍后重试`);
+        }
+        
+        if (fRes.status >= 400) {
+          throw new Error(`HTTP ${fRes.status} 错误`);
         }
         
         const $ = cheerio.load(fRes.data);
-        $('script, style, nav, footer, iframe, header, aside, .ad, .advertisement').remove();
+        $('script, style, nav, footer, iframe, header, aside, .ad, .advertisement, .comments').remove();
         
         let body = '';
         const contentSelectors = [
@@ -310,6 +332,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           '.article-content',
           '.post-content',
           '.entry-content',
+          '.content-body',
           '#content',
           '.content'
         ];
@@ -318,14 +341,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           const element = $(selector);
           if (element.length && element.text().trim().length > 100) {
             body = element.text();
-            console.error(`✅ 使用选择器提取内容: ${selector}`);
+            console.error(`✅ 使用选择器: ${selector}`);
             break;
           }
         }
         
         if (!body) {
           body = $('body').text();
-          console.error(`⚠️ 使用 body 提取内容`);
+          console.error(`⚠️ 回退到 body`);
         }
         
         body = body
@@ -333,6 +356,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           .replace(/\n+/g, '\n')
           .trim()
           .substring(0, 8000);
+        
+        if (body.length < 100) {
+          throw new Error(`内容太短 (${body.length} 字符)，可能是空页面`);
+        }
         
         console.error(`✅ 抓取成功，内容长度: ${body.length}`);
         

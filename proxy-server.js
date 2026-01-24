@@ -96,16 +96,28 @@ function startMCPServer() {
         
         try {
           const response = JSON.parse(jsonStr);
-          console.log('📩 MCP 响应 ID:', response.id || 'unknown');
           
-          if (response.id && responseCallbacks.has(response.id)) {
-            const callback = responseCallbacks.get(response.id);
-            responseCallbacks.delete(response.id);
-            callback(response);
+          // 只处理有效的 JSONRPC 响应
+          if (response.jsonrpc || response.id || response.result || response.error) {
+            console.log('📩 MCP 响应 ID:', response.id || 'notification');
+            
+            if (response.id && responseCallbacks.has(response.id)) {
+              const callback = responseCallbacks.get(response.id);
+              responseCallbacks.delete(response.id);
+              callback(response);
+            }
+          } else {
+            // 忽略非 JSONRPC 消息（如 SDK 内部消息）
+            console.log('📝 MCP 内部消息（已忽略）');
           }
         } catch (e) {
-          console.error('❌ JSON 解析失败:', e.message);
-          console.error('问题 JSON (前200字符):', jsonStr.substring(0, 200));
+          // 忽略解析错误（可能是非标准的 SDK 内部消息）
+          if (jsonStr.includes('override') || jsonStr.includes('debug')) {
+            console.log('📝 MCP SDK 内部消息（已忽略）');
+          } else {
+            console.error('❌ JSON 解析失败:', e.message);
+            console.error('问题 JSON (前200字符):', jsonStr.substring(0, 200));
+          }
         }
         
         // 移除已解析的部分

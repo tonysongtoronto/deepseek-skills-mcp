@@ -552,7 +552,7 @@ ${toolResultsContext}`;
         return value;
     }
 
-   // (前面的代码保持不变...)
+// (前面的代码保持不变...)
 
 async summarizeResults(aiDecision, results) {
     const summaryLoadingId = this.addLoadingMessage('✨ AI 正在总结结果...');
