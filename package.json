@@ -15,7 +15,8 @@
     "dotenv": "^17.2.3",
     "duck-duck-scrape": "^2.2.7",
     "googlethis": "^1.8.0",
-    "mathjs": "^15.1.0"
+    "mathjs": "^15.1.0",
+    "sqlite3": "^5.1.7"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

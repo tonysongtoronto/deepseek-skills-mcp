@@ -145,7 +145,58 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }, 
         required: ['text'] 
       } 
+    },
+    // 在 ListToolsRequestSchema 的 tools 数组中添加
+{
+  name: 'describe_table',
+  description: '查询数据库表的结构信息（字段名、类型等）',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      table: {
+        type: 'string',
+        description: '表名（例：users, products, orders）'
+      },
+      database: {
+        type: 'string',
+        description: '数据库文件路径（默认：demo.db）'
+      }
+    },
+    required: ['table']
+  }
+},
+{
+  name: 'list_tables',
+  description: '列出数据库中的所有表',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      database: {
+        type: 'string',
+        description: '数据库文件路径（默认：demo.db）'
+      }
     }
+  }
+},
+    // 在 mcp-server.js 的 tools 数组中添加
+{
+  name: 'query_database',
+  description: '查询 SQLite 数据库 (支持 SELECT, INSERT, UPDATE, DELETE)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'SQL 查询语句 (例: SELECT * FROM users WHERE age > 25)'
+      },
+      database: {
+        type: 'string',
+        description: '数据库文件路径 (默认: demo.db)'
+      }
+    },
+    required: ['query']
+  }
+}
   ];
 
   console.error(`✅ 返回 ${tools.length} 个工具`);
@@ -451,6 +502,248 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           }] 
         };
       }
+
+case 'query_database': {
+  const sqlite3 = require('sqlite3').verbose();
+  const path = require('path');
+  const fs = require('fs');
+  
+  const dbPath = args.database 
+    ? path.resolve(args.database) 
+    : path.join(__dirname, 'demo.db');
+  
+  console.error(`🗄️  查询数据库: ${dbPath}`);
+  console.error(`📝 SQL: ${args.query}`);
+  
+  if (!fs.existsSync(dbPath)) {
+    throw new Error(`数据库文件不存在: ${dbPath}`);
+  }
+  
+  return new Promise((resolve, reject) => {
+    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE, (err) => {
+      if (err) {
+        reject(new Error(`数据库连接失败: ${err.message}`));
+        return;
+      }
+    });
+    
+    const isSelect = args.query.trim().toUpperCase().startsWith('SELECT');
+    
+    if (isSelect) {
+      db.all(args.query, [], (err, rows) => {
+        db.close();
+        
+        if (err) {
+          console.error(`❌ 查询失败: ${err.message}`);
+          
+          // 🔥 智能错误提示
+          let errorMsg = `SQL 查询失败: ${err.message}`;
+          
+          // 检测常见错误并给出建议
+          if (err.message.includes('no such table')) {
+            const tableName = err.message.match(/no such table: (\w+)/)?.[1];
+            errorMsg += `\n\n💡 建议: 表 "${tableName}" 不存在。使用 list_tables 工具查看可用的表。`;
+          } else if (err.message.includes('no such column')) {
+            const match = err.message.match(/no such column: (\w+)/);
+            const columnName = match?.[1];
+            errorMsg += `\n\n💡 建议: 字段 "${columnName}" 不存在。使用 describe_table 工具查看表结构。`;
+          } else if (err.message.includes('has no column named')) {
+            const match = err.message.match(/has no column named (\w+)/);
+            const columnName = match?.[1];
+            errorMsg += `\n\n💡 建议: 字段 "${columnName}" 不存在。使用 describe_table 工具查看正确的字段名。`;
+          }
+          
+          reject(new Error(errorMsg));
+        } else {
+          console.error(`✅ 查询成功, 返回 ${rows.length} 行`);
+          
+          const result = {
+            rowCount: rows.length,
+            data: rows
+          };
+          
+          resolve({
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          });
+        }
+      });
+    } else {
+      db.run(args.query, [], function(err) {
+        db.close();
+        
+        if (err) {
+          console.error(`❌ 执行失败: ${err.message}`);
+          
+          // 🔥 智能错误提示
+          let errorMsg = `SQL 执行失败: ${err.message}`;
+          
+          if (err.message.includes('no such table')) {
+            const tableName = err.message.match(/no such table: (\w+)/)?.[1];
+            errorMsg += `\n\n💡 建议: 表 "${tableName}" 不存在。使用 list_tables 工具查看可用的表。`;
+          } else if (err.message.includes('has no column named')) {
+            const match = err.message.match(/has no column named (\w+)/);
+            const columnName = match?.[1];
+            errorMsg += `\n\n💡 建议: 字段 "${columnName}" 不存在。使用 describe_table 工具查看表的正确字段名。`;
+          } else if (err.message.includes('UNIQUE constraint failed')) {
+            errorMsg += `\n\n💡 建议: 唯一性约束冲突，可能是该记录已存在。`;
+          } else if (err.message.includes('NOT NULL constraint failed')) {
+            const match = err.message.match(/NOT NULL constraint failed: (\w+\.\w+)/);
+            const field = match?.[1];
+            errorMsg += `\n\n💡 建议: 必填字段 "${field}" 缺少值。`;
+          }
+          
+          reject(new Error(errorMsg));
+        } else {
+          console.error(`✅ 执行成功, 影响 ${this.changes} 行`);
+          
+          const result = {
+            changes: this.changes,
+            lastID: this.lastID,
+            message: '操作成功'
+          };
+          
+          resolve({
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          });
+        }
+      });
+    }
+  });
+}
+
+case 'list_tables': {
+  const sqlite3 = require('sqlite3').verbose();
+  const path = require('path');
+  const fs = require('fs');
+  
+  const dbPath = args.database 
+    ? path.resolve(args.database) 
+    : path.join(__dirname, 'demo.db');
+  
+  console.error(`🗄️  列出表: ${dbPath}`);
+  
+  if (!fs.existsSync(dbPath)) {
+    throw new Error(`数据库文件不存在: ${dbPath}`);
+  }
+  
+  return new Promise((resolve, reject) => {
+    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
+      if (err) {
+        reject(new Error(`数据库连接失败: ${err.message}`));
+        return;
+      }
+    });
+    
+    // 查询所有表
+    db.all(`
+      SELECT name 
+      FROM sqlite_master 
+      WHERE type='table' 
+      AND name NOT LIKE 'sqlite_%'
+      ORDER BY name
+    `, [], (err, rows) => {
+      db.close();
+      
+      if (err) {
+        console.error(`❌ 查询失败: ${err.message}`);
+        reject(new Error(`查询表列表失败: ${err.message}`));
+      } else {
+        const tables = rows.map(row => row.name);
+        console.error(`✅ 找到 ${tables.length} 个表: ${tables.join(', ')}`);
+        
+        const result = {
+          database: dbPath,
+          tableCount: tables.length,
+          tables: tables
+        };
+        
+        resolve({
+          content: [{
+            type: 'text',
+            text: JSON.stringify(result, null, 2)
+          }]
+        });
+      }
+    });
+  });
+}
+
+case 'describe_table': {
+  const sqlite3 = require('sqlite3').verbose();
+  const path = require('path');
+  const fs = require('fs');
+  
+  const dbPath = args.database 
+    ? path.resolve(args.database) 
+    : path.join(__dirname, 'demo.db');
+  
+  console.error(`🔍 查询表结构: ${args.table} (数据库: ${dbPath})`);
+  
+  if (!fs.existsSync(dbPath)) {
+    throw new Error(`数据库文件不存在: ${dbPath}`);
+  }
+  
+  return new Promise((resolve, reject) => {
+    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
+      if (err) {
+        reject(new Error(`数据库连接失败: ${err.message}`));
+        return;
+      }
+    });
+    
+    // 使用 PRAGMA 查询表结构
+    db.all(`PRAGMA table_info(${args.table})`, [], (err, rows) => {
+      if (err) {
+        db.close();
+        console.error(`❌ 查询失败: ${err.message}`);
+        reject(new Error(`查询表结构失败: ${err.message}`));
+        return;
+      }
+      
+      if (rows.length === 0) {
+        db.close();
+        reject(new Error(`表 "${args.table}" 不存在`));
+        return;
+      }
+      
+      // 再查询一下示例数据
+      db.all(`SELECT * FROM ${args.table} LIMIT 3`, [], (err2, sampleRows) => {
+        db.close();
+        
+        const columns = rows.map(col => ({
+          name: col.name,
+          type: col.type,
+          notNull: col.notnull === 1,
+          defaultValue: col.dflt_value,
+          primaryKey: col.pk === 1
+        }));
+        
+        console.error(`✅ 表 ${args.table} 有 ${columns.length} 个字段`);
+        
+        const result = {
+          table: args.table,
+          database: dbPath,
+          columnCount: columns.length,
+          columns: columns,
+          sampleData: err2 ? [] : sampleRows
+        };
+        
+        resolve({
+          content: [{
+            type: 'text',
+            text: JSON.stringify(result, null, 2)
+          }]
+        });
+      });
+    });
+  });
+}
 
       default:
         console.error(`❌ 未知工具: ${name}`);
