@@ -1,5 +1,5 @@
-// DeepSeek Skills MCP 客户端 - 升级版
-// 整合了 Skills 功能，保留所有原有功能
+// DeepSeek Skills MCP 客户端 - 优化版
+// ✨ 新特性：前端显示思考过程，后端显示工具调用详情
 
 class MCPClient {
     constructor() {
@@ -7,7 +7,7 @@ class MCPClient {
         this.tools = [];
         this.conversationHistory = [];
         this.toolResults = [];
-        this.currentSkill = 'general';  // 当前选择的技能
+        this.currentSkill = 'general';
         this.init();
     }
 
@@ -21,17 +21,14 @@ class MCPClient {
         const input = document.getElementById('userInput');
         const sendBtn = document.getElementById('sendBtn');
 
-        // 输入框自动调整高度
         input.addEventListener('input', () => {
             input.style.height = 'auto';
             input.style.height = input.scrollHeight + 'px';
             sendBtn.disabled = !input.value.trim();
         });
 
-        // 发送按钮点击
         sendBtn.addEventListener('click', () => this.handleUserMessage());
         
-        // Enter 发送，Shift+Enter 换行
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -39,7 +36,6 @@ class MCPClient {
             }
         });
 
-        // 示例查询按钮
         document.querySelectorAll('.example-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 input.value = btn.dataset.query;
@@ -48,27 +44,20 @@ class MCPClient {
             });
         });
 
-        // 🆕 Skills 切换按钮
+        // Skills 切换
         document.querySelectorAll('.skill-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                // 移除所有 active 类
                 document.querySelectorAll('.skill-btn').forEach(b => {
                     b.classList.remove('active');
                 });
                 
-                // 激活当前按钮
                 e.target.classList.add('active');
-                
-                // 更新当前技能
                 this.currentSkill = e.target.dataset.skill;
                 
-                // 获取技能信息
                 const skillInfo = SKILLS[this.currentSkill];
                 if (skillInfo) {
                     console.log(`✅ 切换技能: ${skillInfo.icon} ${skillInfo.name}`);
                     console.log(`📝 描述: ${skillInfo.description}`);
-                } else {
-                    console.log('✅ 切换到通用助手模式');
                 }
             });
         });
@@ -135,16 +124,12 @@ class MCPClient {
             'describe_table': '🔍'
         };
 
-        // 显示前8个工具
+        // ✨ 显示所有工具
         toolsList.innerHTML = this.tools.map(tool => `
             <div class="tool-tag" title="${tool.description}">
                 ${toolIcons[tool.name] || '🔧'} ${tool.name}
             </div>
         `).join('');
-    }
-
-    truncate(text, length) {
-        return text.length > length ? text.substring(0, length) + '...' : text;
     }
 
     async handleUserMessage() {
@@ -157,7 +142,6 @@ class MCPClient {
         input.style.height = 'auto';
         document.getElementById('sendBtn').disabled = true;
 
-        // 移除欢迎界面
         const welcome = document.querySelector('.welcome');
         if (welcome) welcome.remove();
 
@@ -174,9 +158,14 @@ class MCPClient {
             const aiDecision = await this.askAIForDecision(query);
             this.removeLoadingMessage(thinkingId);
 
-            console.log('🤖 AI 决策:', aiDecision);
+            // ✨ 前端显示思考过程
+            if (aiDecision.thinking) {
+                this.addThinkingMessage(aiDecision.thinking);
+            }
 
             if (aiDecision.needsTools && aiDecision.toolCalls && aiDecision.toolCalls.length > 0) {
+                // 🔥 智能补充 fetch_url（如果AI忘记添加）
+                aiDecision.toolCalls = this.autoEnhanceWithFetchUrl(query, aiDecision.toolCalls);
                 await this.executeToolCalls(aiDecision);
             } else {
                 this.addMessage('assistant', aiDecision.response);
@@ -189,8 +178,64 @@ class MCPClient {
         } catch (error) {
             this.removeLoadingMessage(thinkingId);
             this.addMessage('assistant', `❌ 出错了: ${error.message}`, null, true);
-            console.error('处理消息失败:', error);
+            console.error('❌ [错误] 处理消息失败:', error);
         }
+    }
+
+    // 🔥 智能补充 fetch_url（如果AI忘记规划）
+    autoEnhanceWithFetchUrl(userQuery, toolCalls) {
+        // 检测用户查询中的关键词
+        const needsDetailKeywords = ['详细', '深入', '全面', '完整', '深度', '分析', '对比', '比较', 
+                                      '新特性', '新功能', '最佳实践', '优化', '技巧'];
+        
+        const queryLower = userQuery.toLowerCase();
+        const needsDetail = needsDetailKeywords.some(keyword => 
+            queryLower.includes(keyword) || userQuery.includes(keyword)
+        );
+        
+        // 如果不需要详细信息，直接返回
+        if (!needsDetail) {
+            console.log('📌 用户查询不需要详细信息，跳过补充 fetch_url');
+            return toolCalls;
+        }
+        
+        // 检查是否有 web_search
+        const hasWebSearch = toolCalls.some(call => call.tool === 'web_search');
+        if (!hasWebSearch) {
+            console.log('📌 没有 web_search，跳过补充 fetch_url');
+            return toolCalls;
+        }
+        
+        // 统计已有的 fetch_url 数量
+        const fetchUrlCount = toolCalls.filter(call => call.tool === 'fetch_url').length;
+        
+        // 如果已经有3个或以上 fetch_url，不需要补充
+        if (fetchUrlCount >= 3) {
+            console.log(`✅ 已有 ${fetchUrlCount} 个 fetch_url，无需补充`);
+            return toolCalls;
+        }
+        
+        // 需要补充！
+        console.log(`🔧 [智能补充] 检测到用户需要详细信息，但只有 ${fetchUrlCount} 个 fetch_url`);
+        console.log(`🔧 [智能补充] 自动补充到 3 个 fetch_url`);
+        
+        const enhanced = [...toolCalls];
+        const needToAdd = 3 - fetchUrlCount;
+        
+        // 在 web_search 之后添加 fetch_url
+        const webSearchIndex = enhanced.findIndex(call => call.tool === 'web_search');
+        
+        for (let i = 0; i < needToAdd; i++) {
+            const resultIndex = fetchUrlCount + i;
+            enhanced.splice(webSearchIndex + 1 + fetchUrlCount + i, 0, {
+                tool: 'fetch_url',
+                params: { url: `{{search_result_${resultIndex}}}` },
+                reason: `[自动补充] 获取第 ${resultIndex + 1} 篇文章完整内容以支持深度分析`
+            });
+        }
+        
+        console.log(`✅ [智能补充] 已补充 ${needToAdd} 个 fetch_url，总共 ${enhanced.length} 个工具调用`);
+        return enhanced;
     }
 
     async askAIForDecision(userQuery) {
@@ -211,17 +256,14 @@ class MCPClient {
             weekday: 'long'
         });
 
-        // 🆕 使用当前技能的 systemPrompt
         let baseSystemPrompt = '';
         if (this.currentSkill && SKILLS[this.currentSkill]) {
             baseSystemPrompt = SKILLS[this.currentSkill].systemPrompt;
-            console.log(`🎯 使用技能: ${SKILLS[this.currentSkill].icon} ${SKILLS[this.currentSkill].name}`);
         } else {
-            // 默认通用助手
             baseSystemPrompt = SKILLS['general']?.systemPrompt || `你是一个智能助手，可以调用工具来帮助用户完成任务。`;
         }
 
-    const systemPrompt = `${baseSystemPrompt}
+        const systemPrompt = `${baseSystemPrompt}
 
 **可用工具列表:**
 ${toolsDescription}
@@ -243,22 +285,36 @@ ${toolsDescription}
   2. 再用 describe_table 查看表的准确字段名
   3. 最后用正确的字段名重新执行 query_database
 
-**🚨 web_search 速率限制 - 非常重要!**
-- web_search 工具有严格的速率限制: **每分钟最多4次,每月2000次**
-- **务必优化搜索策略,减少搜索次数!**
-- 推荐策略:
-  1. 单个主题: 只用1次 web_search,limit设为5-10
-  2. 多个主题: 每个主题1次搜索,避免重复
-  3. 搜索后用 fetch_url 获取详情(无限制)
+**🚨🚨🚨 web_search + fetch_url 铁律（必须100%遵守）🚨🚨🚨**
+
+**核心认知（请记住）:**
+1. web_search 只返回标题和摘要，不是完整文章
+2. 如果需要详细信息，必须用 fetch_url 获取完整内容
+3. 系统绝不会自动添加 fetch_url，完全由你规划
+
+**强制规则 - 涉及以下关键词时必须规划多个 fetch_url:**
+- "详细"、"深入"、"全面"、"完整"、"深度分析" → 必须 3-4 个 fetch_url
+- "对比"、"比较"、"分析" → 必须 3-4 个 fetch_url
+- "新特性"、"新功能"、"更新内容" → 必须 3-4 个 fetch_url
+
+**标准工作流程模板:**
+情况1: 用户要求"深度分析"、"详细介绍" → 1个 web_search + 至少3个 fetch_url
+情况2: 用户要求"对比" → 1-2个 web_search + 4-6个 fetch_url
+情况3: 用户只要"列表" → 1个 web_search
+
+**正确示例:**
+用户问："C# 13 有什么新特性？请详细介绍"
+你必须规划: web_search + 3个 fetch_url（获取3篇完整文章）
+
+**自检清单:**
+- 用户是否要求"详细"、"深入"？→ 是 → 必须加3-4个fetch_url
+- 我规划的fetch_url数量是否>=3个？→ 否 → 重新规划
+- 我是否只规划了web_search？→ 是 → 错误，必须加fetch_url
 
 **参数引用规则:**
-- 引用搜索结果URL: "{{search_result_0}}", "{{search_result_1}}" 等
+- 引用搜索结果: "{{search_result_0}}", "{{search_result_1}}", "{{search_result_2}}"
 - 引用上一步结果: "{{PREVIOUS}}"
-- 引用特定步骤: "{{step_0}}", "{{step_1}}" 等
-
-${toolResultsContext}
-
-**当前日期:** ${today}
+- 引用特定步骤: "{{step_0}}", "{{step_1}}"
 
 请根据用户需求，合理规划并执行任务。回复必须是有效的JSON格式。`;
 
@@ -276,26 +332,37 @@ ${toolResultsContext}
                         role: 'user', 
                         content: `用户请求: ${userQuery}
 
-请分析是否需要调用工具，并返回JSON格式的决策。
+**你的任务:**
+1. 分析用户需求 - 是否包含"详细"、"深入"、"全面"、"对比"等关键词？
+2. 如果包含这些关键词，必须规划 web_search + 至少3个 fetch_url
+3. 返回完整的工具调用链
 
-如果需要工具:
+**强制检查:**
+- 用户是否要求"详细"或"深入"？ → 是 → 必须规划3-4个fetch_url
+- 我规划的fetch_url数量是否>=3个？ → 否且用户要求详细 → 重新规划
+
+**返回JSON格式:**
+
+需要工具时:
 {
   "needsTools": true,
-  "thinking": "你的思考过程",
+  "thinking": "用户是否要求详细内容？我规划了几个fetch_url？为什么？",
   "toolCalls": [
     {
       "tool": "工具名",
       "params": {"参数": "值"},
-      "reason": "为什么调用这个工具"
+      "reason": "调用原因"
     }
   ]
 }
 
-如果不需要工具:
+不需要工具时:
 {
   "needsTools": false,
   "response": "你的直接回答"
-}` 
+}
+
+**提醒: 看到"详细"、"深入"、"全面" → 必须规划3-4个fetch_url**` 
                     }
                 ],
                 temperature: 0.7
@@ -312,7 +379,7 @@ ${toolResultsContext}
             }
             throw new Error('无法解析 AI 响应');
         } catch (error) {
-            console.error('❌ JSON 解析失败:', error);
+            console.error('❌ [错误] JSON 解析失败:', error);
             console.error('原始响应:', aiReply);
             return {
                 needsTools: false,
@@ -322,25 +389,40 @@ ${toolResultsContext}
     }
 
     async executeToolCalls(aiDecision) {
-        console.log(`🔧 执行 ${aiDecision.toolCalls.length} 个工具调用...`);
-        console.log('💭 AI 思考:', aiDecision.thinking);
+        // ✨ 后端显示完整的执行计划
+        console.log('\n' + '='.repeat(60));
+        console.log('🚀 [执行计划] 开始执行工具调用');
+        console.log('='.repeat(60));
+        console.log(`📝 [思考] ${aiDecision.thinking}`);
+        console.log(`🔧 [工具数量] 共 ${aiDecision.toolCalls.length} 个工具调用`);
+        aiDecision.toolCalls.forEach((call, idx) => {
+            console.log(`\n  ${idx + 1}. ${call.tool}`);
+            console.log(`     原因: ${call.reason}`);
+            console.log(`     参数:`, call.params);
+        });
+        console.log('='.repeat(60) + '\n');
 
         const results = [];
         const resultsContext = {};
         
         for (let i = 0; i < aiDecision.toolCalls.length; i++) {
             const toolCall = aiDecision.toolCalls[i];
+            
+            // ✨ 前端显示简洁的步骤提示
             const stepLoadingId = this.addLoadingMessage(
-                `🔨 步骤 ${i+1}/${aiDecision.toolCalls.length}: ${toolCall.tool} - ${toolCall.reason}`
+                `🔨 步骤 ${i+1}/${aiDecision.toolCalls.length}: ${toolCall.tool}`
             );
 
             try {
-                console.log(`\n📍 步骤 ${i+1}: ${toolCall.tool}`);
-                console.log(`📝 原因: ${toolCall.reason}`);
-                console.log(`📦 原始参数:`, toolCall.params);
+                // ✨ 后端显示详细的执行过程
+                console.log(`\n${'─'.repeat(60)}`);
+                console.log(`📍 [步骤 ${i+1}/${aiDecision.toolCalls.length}] ${toolCall.tool}`);
+                console.log(`${'─'.repeat(60)}`);
+                console.log(`📝 [原因] ${toolCall.reason}`);
+                console.log(`📦 [原始参数]`, toolCall.params);
 
                 const resolvedParams = this.resolveParams(toolCall.params, resultsContext, i);
-                console.log(`✅ 解析后参数:`, resolvedParams);
+                console.log(`✅ [解析后参数]`, resolvedParams);
 
                 const result = await this.callTool(toolCall.tool, resolvedParams);
                 
@@ -352,9 +434,9 @@ ${toolResultsContext}
                         searchResults.forEach((r, idx) => {
                             resultsContext[`search_result_${idx}`] = r.url;
                         });
-                        console.log('🔗 搜索结果URL已保存:', Object.keys(resultsContext).filter(k => k.startsWith('search_result_')));
+                        console.log(`🔗 [搜索结果] 已保存 ${searchResults.length} 个 URL`);
                     } catch (e) {
-                        console.warn('⚠️ 无法解析搜索结果');
+                        console.warn('⚠️ [警告] 无法解析搜索结果');
                     }
                 }
 
@@ -372,10 +454,13 @@ ${toolResultsContext}
                     result: result
                 });
 
-                console.log(`✅ 步骤 ${i+1} 完成`);
+                console.log(`✅ [完成] 步骤 ${i+1} 执行成功`);
+                console.log(`📊 [结果长度] ${result.length} 字符`);
 
             } catch (error) {
-                console.error(`❌ 步骤 ${i+1} 失败:`, error.message);
+                console.error(`❌ [失败] 步骤 ${i+1} 执行失败`);
+                console.error(`❌ [错误信息] ${error.message}`);
+                
                 this.removeLoadingMessage(stepLoadingId);
                 
                 results.push({
@@ -388,6 +473,12 @@ ${toolResultsContext}
                 });
             }
         }
+
+        console.log('\n' + '='.repeat(60));
+        console.log('🏁 [执行完成] 所有工具调用已完成');
+        console.log(`✅ 成功: ${results.filter(r => !r.failed).length} 个`);
+        console.log(`❌ 失败: ${results.filter(r => r.failed).length} 个`);
+        console.log('='.repeat(60) + '\n');
 
         await this.summarizeResults(aiDecision, results);
     }
@@ -433,29 +524,12 @@ ${toolResultsContext}
                     }
                 }
 
-                const stepMatch = refTrimmed.match(/^step_(\d+)$/);
-                if (stepMatch) {
-                    const idx = stepMatch[1];
-                    const key = `step_${idx}`;
-                    if (resultsContext[key]) {
-                        console.log(`  [参数解析] ✅ ${match} => step_${idx}`);
-                        return resultsContext[key];
-                    }
-                }
-
-                for (const [ctxKey, ctxValue] of Object.entries(resultsContext)) {
-                    if (ctxKey.includes(refTrimmed) || refTrimmed.includes(ctxKey)) {
-                        console.log(`  [参数解析] ⚠️ 模糊匹配 ${match} => ${ctxKey}`);
-                        return ctxValue;
-                    }
-                }
-
-                console.warn(`  [参数解析] ❌ 未能解析 ${match}, 保留原值`);
+                console.warn(`  [参数解析] ❌ 未能解析 ${match}`);
                 return match;
             });
 
             if (hasMatch) {
-                console.log(`  [参数解析] 最终值: "${resolvedValue}"`);
+                console.log(`  [参数解析] 最终值: "${resolvedValue.substring(0, 100)}..."`);
             }
 
             resolved[key] = resolvedValue;
@@ -504,7 +578,7 @@ ${contextInfo}
 1. 突出关键信息
 2. 使用用户容易理解的语言
 3. 如果有具体数据,要清晰呈现
-4. 如果某些资源无法访问（如 Medium 403 错误），说明原因并基于其他可用资源给出回答
+4. 如果某些资源无法访问，说明原因并基于其他可用资源给出回答
 5. 简洁但完整
 
 直接输出总结内容,不要包含任何格式标记。`;
@@ -545,7 +619,7 @@ ${contextInfo}
 
         } catch (error) {
             this.removeLoadingMessage(summaryLoadingId);
-            console.error('AI 总结失败:', error);
+            console.error('❌ [错误] AI 总结失败:', error);
             
             const successResults = results.filter(r => !r.failed);
             if (successResults.length > 0) {
@@ -567,7 +641,7 @@ ${contextInfo}
 
     async callTool(toolName, params) {
         try {
-            console.log(`[调用工具] ${toolName}`, params);
+            console.log(`[工具调用] ${toolName}`);
             
             const response = await fetch(`${this.baseUrl}/api/tools`, {
                 method: 'POST',
@@ -580,7 +654,6 @@ ${contextInfo}
             });
 
             const data = await response.json();
-            console.log(`[工具响应] ${toolName}`, data);
 
             if (data.error) {
                 const errorMsg = data.error.message || JSON.stringify(data.error);
@@ -599,7 +672,7 @@ ${contextInfo}
             return resultText;
 
         } catch (error) {
-            console.error(`[callTool 异常] ${toolName}:`, error);
+            console.error(`[工具异常] ${toolName}:`, error);
             
             let errorMessage = '工具调用失败';
             
@@ -641,6 +714,26 @@ ${contextInfo}
         return messageDiv;
     }
 
+    // ✨ 新增：显示思考过程的方法
+    addThinkingMessage(thinking) {
+        const chatArea = document.getElementById('chatArea');
+        const thinkingDiv = document.createElement('div');
+        thinkingDiv.className = 'message assistant thinking-message';
+        
+        thinkingDiv.innerHTML = `
+            <div class="message-avatar">💭</div>
+            <div class="message-content" style="background: #f0f2ff; border: 1px solid #667eea; color: #333;">
+                <strong>💭 AI 思考过程：</strong><br><br>
+                ${thinking.replace(/\n/g, '<br>')}
+            </div>
+        `;
+
+        chatArea.appendChild(thinkingDiv);
+        chatArea.scrollTop = chatArea.scrollHeight;
+
+        return thinkingDiv;
+    }
+
     addLoadingMessage(text = '正在思考...') {
         const chatArea = document.getElementById('chatArea');
         const loadingDiv = document.createElement('div');
@@ -665,17 +758,10 @@ ${contextInfo}
         const loading = document.getElementById(id);
         if (loading) loading.remove();
     }
-
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 }
 
 // 初始化应用
 document.addEventListener('DOMContentLoaded', () => {
-    // 检查 SKILLS 是否加载
     if (typeof SKILLS === 'undefined') {
         console.error('❌ Skills 配置未加载！请确保 skills-config.js 已正确引入。');
     } else {
