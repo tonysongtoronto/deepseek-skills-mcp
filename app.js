@@ -1,10 +1,13 @@
-// MCP 客户端类 - 安全版本(API密钥在服务器端) - 增强调试版
+// DeepSeek Skills MCP 客户端 - 升级版
+// 整合了 Skills 功能，保留所有原有功能
+
 class MCPClient {
     constructor() {
         this.baseUrl = 'http://localhost:3001';
         this.tools = [];
         this.conversationHistory = [];
         this.toolResults = [];
+        this.currentSkill = 'general';  // 当前选择的技能
         this.init();
     }
 
@@ -18,13 +21,17 @@ class MCPClient {
         const input = document.getElementById('userInput');
         const sendBtn = document.getElementById('sendBtn');
 
+        // 输入框自动调整高度
         input.addEventListener('input', () => {
             input.style.height = 'auto';
             input.style.height = input.scrollHeight + 'px';
             sendBtn.disabled = !input.value.trim();
         });
 
+        // 发送按钮点击
         sendBtn.addEventListener('click', () => this.handleUserMessage());
+        
+        // Enter 发送，Shift+Enter 换行
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -32,11 +39,37 @@ class MCPClient {
             }
         });
 
+        // 示例查询按钮
         document.querySelectorAll('.example-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 input.value = btn.dataset.query;
                 input.dispatchEvent(new Event('input'));
                 this.handleUserMessage();
+            });
+        });
+
+        // 🆕 Skills 切换按钮
+        document.querySelectorAll('.skill-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                // 移除所有 active 类
+                document.querySelectorAll('.skill-btn').forEach(b => {
+                    b.classList.remove('active');
+                });
+                
+                // 激活当前按钮
+                e.target.classList.add('active');
+                
+                // 更新当前技能
+                this.currentSkill = e.target.dataset.skill;
+                
+                // 获取技能信息
+                const skillInfo = SKILLS[this.currentSkill];
+                if (skillInfo) {
+                    console.log(`✅ 切换技能: ${skillInfo.icon} ${skillInfo.name}`);
+                    console.log(`📝 描述: ${skillInfo.description}`);
+                } else {
+                    console.log('✅ 切换到通用助手模式');
+                }
             });
         });
     }
@@ -96,16 +129,16 @@ class MCPClient {
             'current_time': '🕐',
             'web_search': '🔍',
             'count_words': '📊',
-            'fetch_url': '🌐'
+            'fetch_url': '🌐',
+            'query_database': '🗄️',
+            'list_tables': '📋',
+            'describe_table': '🔍'
         };
 
+        // 显示前8个工具
         toolsList.innerHTML = this.tools.map(tool => `
-            <div class="tool-card" data-tool="${tool.name}">
-                <div class="tool-name">
-                    <span class="icon">${toolIcons[tool.name] || '🔧'}</span>
-                    ${tool.name}
-                </div>
-                <div class="tool-desc">${this.truncate(tool.description, 60)}</div>
+            <div class="tool-tag" title="${tool.description}">
+                ${toolIcons[tool.name] || '🔧'} ${tool.name}
             </div>
         `).join('');
     }
@@ -124,6 +157,7 @@ class MCPClient {
         input.style.height = 'auto';
         document.getElementById('sendBtn').disabled = true;
 
+        // 移除欢迎界面
         const welcome = document.querySelector('.welcome');
         if (welcome) welcome.remove();
 
@@ -177,7 +211,17 @@ class MCPClient {
             weekday: 'long'
         });
 
-    const systemPrompt = `你是一个智能助手,可以调用工具来帮助用户完成任务。
+        // 🆕 使用当前技能的 systemPrompt
+        let baseSystemPrompt = '';
+        if (this.currentSkill && SKILLS[this.currentSkill]) {
+            baseSystemPrompt = SKILLS[this.currentSkill].systemPrompt;
+            console.log(`🎯 使用技能: ${SKILLS[this.currentSkill].icon} ${SKILLS[this.currentSkill].name}`);
+        } else {
+            // 默认通用助手
+            baseSystemPrompt = SKILLS['general']?.systemPrompt || `你是一个智能助手，可以调用工具来帮助用户完成任务。`;
+        }
+
+    const systemPrompt = `${baseSystemPrompt}
 
 **可用工具列表:**
 ${toolsDescription}
@@ -198,16 +242,6 @@ ${toolsDescription}
   1. 先用 list_tables 查看有哪些表
   2. 再用 describe_table 查看表的准确字段名
   3. 最后用正确的字段名重新执行 query_database
-  
-- 示例流程（用户要插入数据但字段名错误）:
-  1. query_database 失败 → 发现字段 username 不存在
-  2. describe_table 查询 users 表结构 → 发现正确字段是 name
-  3. query_database 用正确的字段名重新插入
-
-- 数据库工具组合使用:
-  * list_tables: 查看有哪些表
-  * describe_table: 查看表有哪些字段
-  * query_database: 执行 SQL 查询/修改
 
 **🚨 web_search 速率限制 - 非常重要!**
 - web_search 工具有严格的速率限制: **每分钟最多4次,每月2000次**
@@ -222,405 +256,244 @@ ${toolsDescription}
 - 引用上一步结果: "{{PREVIOUS}}"
 - 引用特定步骤: "{{step_0}}", "{{step_1}}" 等
 
-**正确示例:**
+${toolResultsContext}
+
+**当前日期:** ${today}
+
+请根据用户需求，合理规划并执行任务。回复必须是有效的JSON格式。`;
+
+        const response = await fetch(`${this.baseUrl}/api/deepseek`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    ...this.conversationHistory.slice(-4),
+                    { 
+                        role: 'user', 
+                        content: `用户请求: ${userQuery}
+
+请分析是否需要调用工具，并返回JSON格式的决策。
+
+如果需要工具:
 {
   "needsTools": true,
-  "thinking": "搜索React性能优化,然后获取前3个结果的详细内容",
+  "thinking": "你的思考过程",
   "toolCalls": [
     {
-      "tool": "web_search",
-      "params": {"query": "React performance optimization 2026", "limit": 5},
-      "reason": "搜索React性能优化文章"
-    },
-    {
-      "tool": "fetch_url",
-      "params": {"url": "{{search_result_0}}"},
-      "reason": "获取第1篇文章详情"
-    },
-    {
-      "tool": "fetch_url",
-      "params": {"url": "{{search_result_1}}"},
-      "reason": "获取第2篇文章详情"
-    },
-    {
-      "tool": "fetch_url",
-      "params": {"url": "{{search_result_2}}"},
-      "reason": "获取第3篇文章详情"
+      "tool": "工具名",
+      "params": {"参数": "值"},
+      "reason": "为什么调用这个工具"
     }
   ]
 }
 
-**数据库错误恢复示例:**
-{
-  "needsTools": true,
-  "thinking": "插入失败,字段名错误。先查看表结构,然后用正确的字段名重试",
-  "toolCalls": [
-    {
-      "tool": "describe_table",
-      "params": {"table": "users"},
-      "reason": "查看 users 表的正确字段名"
-    },
-    {
-      "tool": "query_database",
-      "params": {
-        "query": "INSERT INTO users (name, email, age, city) VALUES ('小明', 'xiaoming@example.com', 28, '成都')"
-      },
-      "reason": "使用正确的字段名 name 重新插入"
-    }
-  ]
-}
-
-**输出格式(JSON):**
-不需要工具时:
+如果不需要工具:
 {
   "needsTools": false,
-  "response": "你的回复内容"
-}
+  "response": "你的直接回答"
+}` 
+                    }
+                ],
+                temperature: 0.7
+            })
+        });
 
-需要工具时:
-{
-  "needsTools": true,
-  "thinking": "我的思考过程",
-  "toolCalls": [工具调用数组]
-}
-
-当前日期: ${today}
-
-${toolResultsContext}`;
+        const data = await response.json();
+        const aiReply = data.choices[0].message.content;
 
         try {
-            const response = await fetch(`${this.baseUrl}/api/deepseek`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    model: 'deepseek-chat',
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        ...this.conversationHistory.slice(-6),
-                        { role: 'user', content: userQuery }
-                    ],
-                    temperature: 0.5,
-                    response_format: { type: 'json_object' }
-                })
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`API 请求失败 (${response.status}): ${errorText}`);
+            const jsonMatch = aiReply.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                return JSON.parse(jsonMatch[0]);
             }
-
-            const data = await response.json();
-            let content = data.choices[0].message.content;
-
-            content = content.replace(/```json\s*|\s*```/g, '');
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-            const decision = JSON.parse(jsonMatch ? jsonMatch[0] : content);
-
-            return decision;
-
+            throw new Error('无法解析 AI 响应');
         } catch (error) {
-            console.error('❌ AI 决策失败:', error);
-            throw new Error(`AI 服务调用失败: ${error.message}`);
+            console.error('❌ JSON 解析失败:', error);
+            console.error('原始响应:', aiReply);
+            return {
+                needsTools: false,
+                response: aiReply
+            };
         }
     }
 
     async executeToolCalls(aiDecision) {
-        const toolCalls = aiDecision.toolCalls;
+        console.log(`🔧 执行 ${aiDecision.toolCalls.length} 个工具调用...`);
+        console.log('💭 AI 思考:', aiDecision.thinking);
 
-        if (aiDecision.thinking) {
-            this.addMessage('assistant', `💭 **AI 分析:** ${aiDecision.thinking}`);
-        }
-
-        if (toolCalls.length > 1) {
-            const planText = `📋 **执行计划**(共 ${toolCalls.length} 步):\n\n` +
-                toolCalls.map((call, i) => 
-                    `${i + 1}. **${call.tool}** - ${call.reason}`
-                ).join('\n');
-            this.addMessage('assistant', planText);
-        } else {
-            this.addMessage('assistant', 
-                `🔧 **准备执行:** ${toolCalls[0].tool}\n📝 ${toolCalls[0].reason}`
-            );
-        }
-
+        const results = [];
         const resultsContext = {};
-        const allResults = [];
-
-        for (let i = 0; i < toolCalls.length; i++) {
-            const call = toolCalls[i];
-            const stepNum = i + 1;
-
-            const executingId = this.addLoadingMessage(
-                `⚙️ 执行步骤 ${stepNum}/${toolCalls.length}: ${call.tool}...`
+        
+        for (let i = 0; i < aiDecision.toolCalls.length; i++) {
+            const toolCall = aiDecision.toolCalls[i];
+            const stepLoadingId = this.addLoadingMessage(
+                `🔨 步骤 ${i+1}/${aiDecision.toolCalls.length}: ${toolCall.tool} - ${toolCall.reason}`
             );
-
-            // ✅ 在 try 外部声明 params
-            let params;
 
             try {
-                console.log(`\n${'='.repeat(70)}`);
-                console.log(`[步骤 ${i}] 工具: ${call.tool}`);
-                console.log(`[步骤 ${i}] 原始参数:`, JSON.stringify(call.params, null, 2));
-                console.log(`[步骤 ${i}] 当前 allResults 数量: ${allResults.length}`);
+                console.log(`\n📍 步骤 ${i+1}: ${toolCall.tool}`);
+                console.log(`📝 原因: ${toolCall.reason}`);
+                console.log(`📦 原始参数:`, toolCall.params);
+
+                const resolvedParams = this.resolveParams(toolCall.params, resultsContext, i);
+                console.log(`✅ 解析后参数:`, resolvedParams);
+
+                const result = await this.callTool(toolCall.tool, resolvedParams);
                 
-                if (allResults.length > 0) {
-                    console.log(`[步骤 ${i}] allResults 内容:`);
-                    allResults.forEach((r, idx) => {
-                        console.log(`  [${idx}] tool=${r.tool}, resultLength=${r.result.length}`);
-                        if (r.tool === 'web_search') {
-                            console.log(`  [${idx}] web_search 结果预览:`, r.result.substring(0, 200));
-                        }
-                    });
-                }
-
-                // ✅ 赋值 params
-                params = this.resolveParams(call.params, resultsContext, i, allResults);
-
-                console.log(`[步骤 ${i}] 解析后参数:`, JSON.stringify(params, null, 2));
-                console.log(`${'='.repeat(70)}\n`);
-
-                const result = await this.callTool(call.tool, params);
-                this.removeLoadingMessage(executingId);
-
-                console.log(`✅ [步骤 ${i}] 工具 ${call.tool} 返回成功, 结果长度: ${result.length}`);
-                console.log(`   结果预览: ${result.substring(0, 150)}...`);
-
-                // ✅ 检查 web_search 结果是否为空
-                if (call.tool === 'web_search') {
+                resultsContext[`step_${i}`] = result;
+                
+                if (toolCall.tool === 'web_search') {
                     try {
                         const searchResults = JSON.parse(result);
-                        if (!Array.isArray(searchResults) || searchResults.length === 0) {
-                            console.error(`❌ web_search 返回空结果，终止执行`);
-                            this.removeLoadingMessage(executingId);
-                            this.addMessage('assistant', 
-                                `⚠️ **搜索未找到结果**\n\n请尝试更换关键词或稍后重试。`,
-                                null,
-                                true
-                            );
-                            return;
-                        }
+                        searchResults.forEach((r, idx) => {
+                            resultsContext[`search_result_${idx}`] = r.url;
+                        });
+                        console.log('🔗 搜索结果URL已保存:', Object.keys(resultsContext).filter(k => k.startsWith('search_result_')));
                     } catch (e) {
-                        console.error(`❌ web_search 结果解析失败:`, e);
-                        this.removeLoadingMessage(executingId);
-                        this.addMessage('assistant', 
-                            `❌ **搜索结果格式错误**\n\n${e.message}`,
-                            null,
-                            true
-                        );
-                        return;
+                        console.warn('⚠️ 无法解析搜索结果');
                     }
                 }
 
-                resultsContext[`step_${i}`] = result;
-                resultsContext[call.tool] = result;
-                
-                const resultEntry = { 
-                    tool: call.tool, 
-                    result, 
-                    params,
-                    stepIndex: i,
+                this.removeLoadingMessage(stepLoadingId);
+                results.push({
+                    step: i + 1,
+                    tool: toolCall.tool,
+                    reason: toolCall.reason,
+                    result: result,
                     failed: false
-                };
-                
-                allResults.push(resultEntry);
-                
-                console.log(`✅ [步骤 ${i}] 完成并已添加到 allResults`);
-                console.log(`   allResults 当前长度: ${allResults.length}`);
-                
-                this.toolResults.push({ tool: call.tool, result });
-                if (this.toolResults.length > 10) {
-                    this.toolResults.shift();
-                }
+                });
 
-                const preview = result.length > 300 
-                    ? result.substring(0, 300) + '...' 
-                    : result;
-                
-                this.addMessage('assistant', 
-                    `✅ **步骤 ${stepNum} 完成**\n\n` +
-                    `\`\`\`\n${preview}\n\`\`\``,
-                    null,
-                    false
-                );
+                this.toolResults.push({
+                    tool: toolCall.tool,
+                    result: result
+                });
+
+                console.log(`✅ 步骤 ${i+1} 完成`);
 
             } catch (error) {
-                this.removeLoadingMessage(executingId);
+                console.error(`❌ 步骤 ${i+1} 失败:`, error.message);
+                this.removeLoadingMessage(stepLoadingId);
                 
-                let errorDetails = error.message;
-                if (error.stack) {
-                    console.error('完整错误堆栈:', error.stack);
-                }
-                
-                // ✅ 现在 params 可以正常使用了
-                allResults.push({ 
-                    tool: call.tool, 
-                    result: '', 
-                    params: params || call.params, // 如果 resolveParams 失败，用原始参数
-                    stepIndex: i,
-                    failed: true,
-                    error: errorDetails
+                results.push({
+                    step: i + 1,
+                    tool: toolCall.tool,
+                    reason: toolCall.reason,
+                    result: null,
+                    error: error.message,
+                    failed: true
                 });
-                
-                console.error(`❌ [步骤 ${i}] 失败: ${call.tool}, 错误: ${errorDetails}`);
-                console.error(`⚠️  allResults 已更新 (包含失败记录), 当前长度: ${allResults.length}`);
-                
-                this.addMessage('assistant', 
-                    `❌ 步骤 ${stepNum} 失败\n\n` +
-                    `**工具:** ${call.tool}\n` +
-                    `**错误:** ${errorDetails}\n\n` +
-                    `**参数:** \`${JSON.stringify(params || call.params)}\``,
-                    null,
-                    true
-                );
-                
-                // 如果是搜索步骤失败，后续依赖搜索结果的步骤都会失败，应该直接停止
-                if (call.tool === 'web_search') {
-                    console.error(`❌ web_search 失败，终止执行`);
-                    this.addMessage('assistant', 
-                        `⚠️ **搜索失败，无法继续执行后续步骤**\n\n请稍后重试或更换搜索关键词。`,
-                        null,
-                        true
-                    );
-                    return;
-                }
-                
-                console.warn(`步骤 ${stepNum} 失败，继续执行...`);
-                continue;
             }
         }
 
-        await this.summarizeResults(aiDecision, allResults);
+        await this.summarizeResults(aiDecision, results);
     }
 
-    resolveParams(params, resultsContext, currentStepIndex, allResults) {
-        if (!params || typeof params !== 'object') {
-            return params;
+    resolveParams(params, resultsContext, currentStepIndex) {
+        const resolved = {};
+
+        for (const [key, value] of Object.entries(params)) {
+            if (typeof value !== 'string') {
+                resolved[key] = value;
+                continue;
+            }
+
+            let resolvedValue = value;
+            const hasMatch = /\{\{.*?\}\}/.test(value);
+
+            if (hasMatch) {
+                console.log(`  [参数解析] 处理参数 "${key}": "${value}"`);
+            }
+
+            resolvedValue = value.replace(/\{\{(.*?)\}\}/g, (match, ref) => {
+                const refTrimmed = ref.trim();
+
+                if (refTrimmed.startsWith('search_result_')) {
+                    if (resultsContext[refTrimmed]) {
+                        console.log(`  [参数解析] ✅ ${match} => ${resultsContext[refTrimmed]}`);
+                        return resultsContext[refTrimmed];
+                    }
+                }
+
+                if (refTrimmed.startsWith('step_')) {
+                    if (resultsContext[refTrimmed]) {
+                        console.log(`  [参数解析] ✅ ${match} => step 结果`);
+                        return resultsContext[refTrimmed];
+                    }
+                }
+
+                if (refTrimmed === 'PREVIOUS') {
+                    const previousKey = `step_${currentStepIndex - 1}`;
+                    if (resultsContext[previousKey]) {
+                        console.log(`  [参数解析] ✅ {{PREVIOUS}} => step_${currentStepIndex - 1}`);
+                        return resultsContext[previousKey];
+                    }
+                }
+
+                const stepMatch = refTrimmed.match(/^step_(\d+)$/);
+                if (stepMatch) {
+                    const idx = stepMatch[1];
+                    const key = `step_${idx}`;
+                    if (resultsContext[key]) {
+                        console.log(`  [参数解析] ✅ ${match} => step_${idx}`);
+                        return resultsContext[key];
+                    }
+                }
+
+                for (const [ctxKey, ctxValue] of Object.entries(resultsContext)) {
+                    if (ctxKey.includes(refTrimmed) || refTrimmed.includes(ctxKey)) {
+                        console.log(`  [参数解析] ⚠️ 模糊匹配 ${match} => ${ctxKey}`);
+                        return ctxValue;
+                    }
+                }
+
+                console.warn(`  [参数解析] ❌ 未能解析 ${match}, 保留原值`);
+                return match;
+            });
+
+            if (hasMatch) {
+                console.log(`  [参数解析] 最终值: "${resolvedValue}"`);
+            }
+
+            resolved[key] = resolvedValue;
         }
 
-        const resolved = {};
-        
-        for (const [key, value] of Object.entries(params)) {
-            resolved[key] = this.resolveValue(value, resultsContext, currentStepIndex, allResults);
-        }
-        
         return resolved;
     }
 
-    resolveValue(value, resultsContext, currentStepIndex, allResults) {
-        if (typeof value !== 'string') {
-            return value;
-        }
+    async summarizeResults(aiDecision, results) {
+        const summaryLoadingId = this.addLoadingMessage('✨ AI 正在总结结果...');
 
-        console.log(`  [参数解析] 原始值: "${value}"`);
-
-        // 处理 {{search_result_N}}
-        const searchResultPattern = /\{\{search_result_(\d+)\}\}/g;
-        let hasMatch = false;
-        
-        value = value.replace(searchResultPattern, (match, index) => {
-            hasMatch = true;
-            console.log(`  [参数解析] 检测到占位符: ${match}`);
+        try {
+            const failedSteps = results.filter(r => r.failed);
+            const successSteps = results.filter(r => !r.failed);
             
-            // 从后往前找最近的 web_search 结果
-            for (let i = allResults.length - 1; i >= 0; i--) {
-                console.log(`  [参数解析] 检查 allResults[${i}], tool=${allResults[i].tool}`);
+            let contextInfo = '';
+            
+            if (failedSteps.length > 0) {
+                contextInfo = '\n\n**执行情况说明:**\n';
+                contextInfo += `- 成功: ${successSteps.length} 步\n`;
+                contextInfo += `- 失败: ${failedSteps.length} 步\n\n`;
                 
-                if (allResults[i].tool === 'web_search') {
-                    console.log(`  [参数解析] ✓ 找到 web_search (步骤 ${i})`);
-                    console.log(`  [参数解析] result 类型:`, typeof allResults[i].result);
-                    console.log(`  [参数解析] result 前100字符:`, allResults[i].result.substring(0, 100));
-                    
-                    try {
-                        const searchResults = JSON.parse(allResults[i].result);
-                        console.log(`  [参数解析] JSON解析成功, 数组长度: ${searchResults.length}`);
-                        
-                        const idx = parseInt(index);
-                        console.log(`  [参数解析] 请求索引: ${idx}`);
-                        
-                        if (Array.isArray(searchResults) && idx < searchResults.length && searchResults[idx]) {
-                            const url = searchResults[idx].url;
-                            console.log(`  [参数解析] ✅ 成功! ${match} => ${url}`);
-                            return url;
-                        } else {
-                            console.warn(`  [参数解析] ❌ 索引 ${idx} 超出范围或无效 (数组长度: ${searchResults.length})`);
-                            if (searchResults[idx]) {
-                                console.warn(`  [参数解析] 元素内容:`, searchResults[idx]);
-                            }
-                        }
-                    } catch (e) {
-                        console.error(`  [参数解析] ❌ JSON解析失败:`, e.message);
-                        console.error(`  [参数解析] 原始数据:`, allResults[i].result);
+                failedSteps.forEach(step => {
+                    if (step.error && step.error.includes('403')) {
+                        contextInfo += `⚠️ ${step.tool} 遇到访问限制（网站反爬保护）\n`;
+                    } else {
+                        contextInfo += `⚠️ ${step.tool} 失败: ${step.error}\n`;
                     }
-                    break;
-                }
+                });
+                
+                contextInfo += '\n**请基于成功获取的信息给出回答，并说明哪些资源无法访问。**\n';
             }
-            
-            console.warn(`  [参数解析] ❌ 未能解析 ${match}, 保留原值`);
-            return match;
-        });
 
-        if (hasMatch) {
-            console.log(`  [参数解析] 最终值: "${value}"`);
-        }
+            const resultsText = successSteps.map(r => 
+                `**${r.tool}**: ${r.result.substring(0, 1500)}`
+            ).join('\n\n');
 
-        // 处理 {{PREVIOUS}}
-        if (value.includes('{{PREVIOUS}}')) {
-            const previousKey = `step_${currentStepIndex - 1}`;
-            if (resultsContext[previousKey] !== undefined) {
-                value = value.replace(/\{\{PREVIOUS\}\}/g, String(resultsContext[previousKey]));
-                console.log(`  [参数解析] {{PREVIOUS}} => step_${currentStepIndex - 1}`);
-            }
-        }
-
-        // 处理 {{step_N}}
-        const stepRefPattern = /\{\{step_(\d+)\}\}/g;
-        value = value.replace(stepRefPattern, (match, stepIndex) => {
-            const key = `step_${stepIndex}`;
-            if (resultsContext[key] !== undefined) {
-                console.log(`  [参数解析] ${match} => step_${stepIndex}`);
-                return String(resultsContext[key]);
-            }
-            return match;
-        });
-
-        return value;
-    }
-
-// (前面的代码保持不变...)
-
-async summarizeResults(aiDecision, results) {
-    const summaryLoadingId = this.addLoadingMessage('✨ AI 正在总结结果...');
-
-    try {
-        // 检查是否有失败的步骤
-        const failedSteps = results.filter(r => r.failed);
-        const successSteps = results.filter(r => !r.failed);
-        
-        let contextInfo = '';
-        
-        if (failedSteps.length > 0) {
-            contextInfo = '\n\n**执行情况说明:**\n';
-            contextInfo += `- 成功: ${successSteps.length} 步\n`;
-            contextInfo += `- 失败: ${failedSteps.length} 步\n\n`;
-            
-            failedSteps.forEach(step => {
-                if (step.error && step.error.includes('403')) {
-                    contextInfo += `⚠️ ${step.tool} 遇到访问限制（网站反爬保护）\n`;
-                } else {
-                    contextInfo += `⚠️ ${step.tool} 失败: ${step.error}\n`;
-                }
-            });
-            
-            contextInfo += '\n**请基于成功获取的信息给出回答，并说明哪些资源无法访问。**\n';
-        }
-
-        const resultsText = successSteps.map(r => 
-            `**${r.tool}**: ${r.result.substring(0, 1500)}`
-        ).join('\n\n');
-
-        const summaryPrompt = `用户的原始请求已经通过工具执行。
+            const summaryPrompt = `用户的原始请求已经通过工具执行。
 
 **执行的工具和结果:**
 ${resultsText}
@@ -636,63 +509,62 @@ ${contextInfo}
 
 直接输出总结内容,不要包含任何格式标记。`;
 
-        const response = await fetch(`${this.baseUrl}/api/deepseek`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                model: 'deepseek-chat',
-                messages: [
-                    ...this.conversationHistory.slice(-4),
-                    { role: 'user', content: summaryPrompt }
-                ],
-                temperature: 0.7
-            })
-        });
+            const response = await fetch(`${this.baseUrl}/api/deepseek`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: 'deepseek-chat',
+                    messages: [
+                        ...this.conversationHistory.slice(-4),
+                        { role: 'user', content: summaryPrompt }
+                    ],
+                    temperature: 0.7
+                })
+            });
 
-        const data = await response.json();
-        const summary = data.choices[0].message.content;
+            const data = await response.json();
+            const summary = data.choices[0].message.content;
 
-        this.removeLoadingMessage(summaryLoadingId);
-        
-        // 根据成功率选择不同的图标
-        let statusIcon = '🎉';
-        if (failedSteps.length > 0 && successSteps.length === 0) {
-            statusIcon = '❌';
-        } else if (failedSteps.length > 0) {
-            statusIcon = '⚠️';
-        }
-        
-        this.addMessage('assistant', `${statusIcon} **任务完成!**\n\n${summary}`, null, true);
-        
-        this.conversationHistory.push({
-            role: 'assistant',
-            content: summary
-        });
+            this.removeLoadingMessage(summaryLoadingId);
+            
+            let statusIcon = '🎉';
+            if (failedSteps.length > 0 && successSteps.length === 0) {
+                statusIcon = '❌';
+            } else if (failedSteps.length > 0) {
+                statusIcon = '⚠️';
+            }
+            
+            this.addMessage('assistant', `${statusIcon} **任务完成!**\n\n${summary}`, null, true);
+            
+            this.conversationHistory.push({
+                role: 'assistant',
+                content: summary
+            });
 
-    } catch (error) {
-        this.removeLoadingMessage(summaryLoadingId);
-        console.error('AI 总结失败:', error);
-        
-        // 即使 AI 总结失败，也要给用户看到结果
-        const successResults = results.filter(r => !r.failed);
-        if (successResults.length > 0) {
-            const lastResult = successResults[successResults.length - 1];
-            this.addMessage('assistant', 
-                `✅ **任务完成!**\n\n最终结果:\n\n${lastResult.result.substring(0, 1000)}`,
-                null,
-                true
-            );
-        } else {
-            this.addMessage('assistant', 
-                `❌ **所有步骤都失败了**\n\n可能原因:\n- 网站有反爬保护\n- 网络连接问题\n- API 限制\n\n建议尝试其他搜索关键词或稍后重试。`,
-                null,
-                true
-            );
+        } catch (error) {
+            this.removeLoadingMessage(summaryLoadingId);
+            console.error('AI 总结失败:', error);
+            
+            const successResults = results.filter(r => !r.failed);
+            if (successResults.length > 0) {
+                const lastResult = successResults[successResults.length - 1];
+                this.addMessage('assistant', 
+                    `✅ **任务完成!**\n\n最终结果:\n\n${lastResult.result.substring(0, 1000)}`,
+                    null,
+                    true
+                );
+            } else {
+                this.addMessage('assistant', 
+                    `❌ **所有步骤都失败了**\n\n可能原因:\n- 网站有反爬保护\n- 网络连接问题\n- API 限制\n\n建议尝试其他搜索关键词或稍后重试。`,
+                    null,
+                    true
+                );
+            }
         }
     }
-}
+
     async callTool(toolName, params) {
         try {
             console.log(`[调用工具] ${toolName}`, params);
@@ -756,11 +628,11 @@ ${contextInfo}
         formattedContent = formattedContent.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
         formattedContent = formattedContent.replace(/\n/g, '<br>');
 
+        const avatar = role === 'user' ? '👤' : '🤖';
+
         messageDiv.innerHTML = `
-            <div class="message-content">
-                ${formattedContent}
-            </div>
-            <div class="message-meta">${new Date().toLocaleTimeString()}</div>
+            <div class="message-avatar">${avatar}</div>
+            <div class="message-content">${formattedContent}</div>
         `;
 
         chatArea.appendChild(messageDiv);
@@ -776,6 +648,7 @@ ${contextInfo}
         loadingDiv.id = id;
         loadingDiv.className = 'message assistant';
         loadingDiv.innerHTML = `
+            <div class="message-avatar">🤖</div>
             <div class="message-content loading-message">
                 ${text}
                 <div class="loading-dots">
@@ -802,5 +675,12 @@ ${contextInfo}
 
 // 初始化应用
 document.addEventListener('DOMContentLoaded', () => {
+    // 检查 SKILLS 是否加载
+    if (typeof SKILLS === 'undefined') {
+        console.error('❌ Skills 配置未加载！请确保 skills-config.js 已正确引入。');
+    } else {
+        console.log('✅ Skills 配置已加载，共', Object.keys(SKILLS).length, '个技能');
+    }
+    
     window.mcpClient = new MCPClient();
 });

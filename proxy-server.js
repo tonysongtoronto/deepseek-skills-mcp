@@ -108,13 +108,24 @@ function startMCPServer() {
             }
           } else {
             // 忽略非 JSONRPC 消息（如 SDK 内部消息）
-            console.log('📝 MCP 内部消息（已忽略）');
+            // 静默处理，不输出日志
           }
         } catch (e) {
-          // 忽略解析错误（可能是非标准的 SDK 内部消息）
-          if (jsonStr.includes('override') || jsonStr.includes('debug')) {
-            console.log('📝 MCP SDK 内部消息（已忽略）');
+          // 🔧 优化：增强的内部消息检测
+          const commonInternalPatterns = [
+            'override', 'debug', 'path:', '.env', 
+            'loading', 'config', 'dotenv', 'process.env',
+            'extends', 'require', 'module'
+          ];
+          
+          const isInternalMessage = commonInternalPatterns.some(pattern => 
+            jsonStr.toLowerCase().includes(pattern.toLowerCase())
+          );
+          
+          if (isInternalMessage) {
+            // 静默处理内部消息，不输出日志
           } else {
+            // 只输出真正异常的错误
             console.error('❌ JSON 解析失败:', e.message);
             console.error('问题 JSON (前200字符):', jsonStr.substring(0, 200));
           }

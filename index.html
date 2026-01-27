@@ -3,170 +3,560 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI驱动的 MCP 智能助手</title>
-    <link rel="stylesheet" href="style.css">
+    <title>DeepSeek Skills MCP Agent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            height: 90vh;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 头部 */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #dc3545;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.connected {
+            background: #28a745;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Skills 选择器 */
+        .skills-selector {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-bottom: 2px solid #e1e4e8;
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .skills-selector::-webkit-scrollbar {
+            height: 6px;
+        }
+
+        .skills-selector::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 3px;
+        }
+
+        .skills-label {
+            font-weight: 600;
+            color: #333;
+            white-space: nowrap;
+            font-size: 14px;
+        }
+
+        .skill-btn {
+            padding: 8px 16px;
+            border: 2px solid #e1e4e8;
+            background: white;
+            color: #333;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 13px;
+            white-space: nowrap;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .skill-btn:hover {
+            border-color: #667eea;
+            background: #f0f2ff;
+        }
+
+        .skill-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        /* 工具栏 */
+        .tools-bar {
+            background: white;
+            padding: 12px 20px;
+            border-bottom: 1px solid #e1e4e8;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-shrink: 0;
+            font-size: 13px;
+        }
+
+        .tools-label {
+            color: #666;
+            font-weight: 600;
+        }
+
+        .tool-count {
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .tools-list {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            flex: 1;
+        }
+
+        .tool-tag {
+            background: #f0f2ff;
+            color: #667eea;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+        /* 聊天区域 */
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+            background: #fafbfc;
+        }
+
+        .chat-area::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .chat-area::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 4px;
+        }
+
+        /* 欢迎界面 */
+        .welcome {
+            text-align: center;
+            padding: 60px 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .welcome h2 {
+            font-size: 32px;
+            color: #333;
+            margin-bottom: 16px;
+        }
+
+        .welcome p {
+            color: #666;
+            font-size: 16px;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .example-queries {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        .example-btn {
+            background: white;
+            border: 2px solid #e1e4e8;
+            border-radius: 12px;
+            padding: 20px;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s;
+        }
+
+        .example-btn:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .example-icon {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .example-text {
+            font-size: 14px;
+            color: #333;
+            font-weight: 500;
+            line-height: 1.4;
+        }
+
+        /* 消息 */
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 12px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .message.assistant .message-avatar {
+            background: #f1f3f5;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 14px 18px;
+            border-radius: 16px;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+
+        .message.user .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .message-content {
+            background: white;
+            border: 1px solid #e1e4e8;
+            color: #333;
+            border-bottom-left-radius: 4px;
+        }
+
+        .message-content strong {
+            font-weight: 600;
+        }
+
+        .message-content code {
+            background: rgba(0, 0, 0, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .message.user .message-content code {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .message-content pre {
+            background: #f6f8fa;
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 8px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            border: 1px solid #e1e4e8;
+        }
+
+        .message-meta {
+            font-size: 11px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        .loading-message {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .loading-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .loading-dots span {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #667eea;
+            animation: bounce 1.4s infinite ease-in-out;
+        }
+
+        .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        /* 输入区域 */
+        .input-area {
+            padding: 20px 30px;
+            background: white;
+            border-top: 1px solid #e1e4e8;
+            flex-shrink: 0;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        #userInput {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e1e4e8;
+            border-radius: 12px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: none;
+            min-height: 48px;
+            max-height: 120px;
+            transition: border-color 0.2s;
+            line-height: 1.5;
+        }
+
+        #userInput:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        #sendBtn {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, opacity 0.2s;
+            height: 48px;
+            white-space: nowrap;
+        }
+
+        #sendBtn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        #sendBtn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 响应式 */
+        @media (max-width: 768px) {
+            .container {
+                height: 100vh;
+                border-radius: 0;
+            }
+
+            .header h1 {
+                font-size: 18px;
+            }
+
+            .skills-selector {
+                padding: 12px 15px;
+            }
+
+            .chat-area {
+                padding: 20px 15px;
+            }
+
+            .message-content {
+                max-width: 85%;
+            }
+
+            .welcome h2 {
+                font-size: 24px;
+            }
+
+            .example-queries {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="container">
         <!-- 头部 -->
-        <header class="header">
-            <div class="logo">
-                <svg viewBox="0 0 24 24" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
-                    <path fill="currentColor" d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z"/>
-                </svg>
-                <h1>AI 智能助手</h1>
-                <span class="ai-badge">🤖 AI Powered</span>
-            </div>
+        <div class="header">
+            <h1>🤖 DeepSeek Skills MCP Agent</h1>
             <div class="status">
-                <span class="status-dot" id="statusDot"></span>
+                <div class="status-dot" id="statusDot"></div>
                 <span id="statusText">连接中...</span>
             </div>
-        </header>
+        </div>
 
-        <div class="main">
-            <!-- 侧边栏 - 工具列表 -->
-            <aside class="sidebar">
-                <div class="sidebar-header">
-                    <h2>可用工具</h2>
-                    <span class="tool-count" id="toolCount">0</span>
-                </div>
-                <div class="tools-grid" id="toolsList">
-                    <div class="loading">加载中...</div>
-                </div>
+        <!-- Skills 选择器 -->
+        <div class="skills-selector">
+            <span class="skills-label">💡 选择技能：</span>
+            
+            <button class="skill-btn active" data-skill="general">
+                🤖 通用助手
+            </button>
+
+            <button class="skill-btn" data-skill="code_review">
+                🔍 代码审查
+            </button>
+
+            <button class="skill-btn" data-skill="data_analyst">
+                📊 数据分析
+            </button>
+
+            <button class="skill-btn" data-skill="researcher">
+                🔬 网络研究
+            </button>
+
+            <button class="skill-btn" data-skill="sql_helper">
+                🗄️ SQL 助手
+            </button>
+
+            <button class="skill-btn" data-skill="doc_writer">
+                📝 文档撰写
+            </button>
+
+            <button class="skill-btn" data-skill="debugger">
+                🐛 调试助手
+            </button>
+
+            <button class="skill-btn" data-skill="quick_answer">
+                ⚡ 快速答疑
+            </button>
+        </div>
+
+        <!-- 工具栏 -->
+        <div class="tools-bar">
+            <span class="tools-label">🔧 可用工具</span>
+            <span class="tool-count" id="toolCount">0</span>
+            <div class="tools-list" id="toolsList"></div>
+        </div>
+
+        <!-- 聊天区域 -->
+        <div class="chat-area" id="chatArea">
+            <div class="welcome">
+                <h2>👋 你好！我是 AI 助手</h2>
+                <p>选择一个技能开始，或者直接向我提问。我可以帮你搜索网络、分析数据、审查代码、编写文档等等！</p>
                 
-                <div class="sidebar-footer">
-                    <div class="info-card ai-feature">
-                        <h3>🤖 AI 能力</h3>
-                        <ul>
-                            <li>智能理解你的需求</li>
-                            <li>自动选择合适工具</li>
-                            <li>规划多步骤任务</li>
-                            <li>用人话解释结果</li>
-                            <li>支持多轮对话</li>
-                        </ul>
-                    </div>
-                    
-                    <div class="info-card">
-                        <h3>💡 使用技巧</h3>
-                        <ul>
-                            <li>像和朋友聊天一样说话</li>
-                            <li>可以追问更多细节</li>
-                            <li>支持复杂的任务链</li>
-                        </ul>
-                    </div>
-                </div>
-            </aside>
+                <div class="example-queries">
+                    <button class="example-btn" data-query="帮我审查这段代码有什么问题">
+                        <div class="example-icon">🔍</div>
+                        <div class="example-text">审查代码，找出问题和优化建议</div>
+                    </button>
 
-            <!-- 主内容区 -->
-            <main class="content">
-                <!-- 对话区域 -->
-                <div class="chat-area" id="chatArea">
-                    <div class="welcome">
-                        <div class="welcome-icon">
-                            <svg viewBox="0 0 24 24" width="64" height="64" xmlns="http://www.w3.org/2000/svg">
-                                <path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
-                            </svg>
-                            <div class="ai-glow"></div>
-                        </div>
-                        <h2>你好！我是 AI 智能助手 🤖</h2>
-                        <p>我不仅能理解你的需求，还能自动选择工具、规划任务步骤，并用自然语言解释结果</p>
-                        
-                        <div class="example-section">
-                            <h3>试试这些：</h3>
-                            <div class="example-queries">
-                                <button class="example-btn" data-query="你好，你能做什么？">
-                                    <span class="icon">👋</span>
-                                    <div>
-                                        <strong>打个招呼</strong>
-                                        <small>了解我的能力</small>
-                                    </div>
-                                </button>
-                                
-                                <button class="example-btn" data-query="帮我算一下 (123 + 456) * 2 - 100 等于多少">
-                                    <span class="icon">🔢</span>
-                                    <div>
-                                        <strong>数学计算</strong>
-                                        <small>复杂表达式</small>
-                                    </div>
-                                </button>
-                                
-                                <button class="example-btn" data-query="读取 demo.txt 文件，然后告诉我有多少字">
-                                    <span class="icon">📊</span>
-                                    <div>
-                                        <strong>多步骤任务</strong>
-                                        <small>读文件+统计</small>
-                                    </div>
-                                </button>
-                                
-                                <button class="example-btn" data-query="现在北京时间几点了？">
-                                    <span class="icon">🕐</span>
-                                    <div>
-                                        <strong>查询时间</strong>
-                                        <small>指定时区</small>
-                                    </div>
-                                </button>
-                                
-                                <button class="example-btn" data-query="列出当前目录下的所有文件">
-                                    <span class="icon">📁</span>
-                                    <div>
-                                        <strong>浏览文件</strong>
-                                        <small>查看目录</small>
-                                    </div>
-                                </button>
-                                
-                                <button class="example-btn" data-query="帮我写一个 hello.txt 文件，内容是：Hello, AI World!">
-                                    <span class="icon">✍️</span>
-                                    <div>
-                                        <strong>创建文件</strong>
-                                        <small>写入内容</small>
-                                    </div>
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div class="features-highlight">
-                            <div class="feature">
-                                <span>🧠</span>
-                                <p>智能理解</p>
-                            </div>
-                            <div class="feature">
-                                <span>🔄</span>
-                                <p>自动规划</p>
-                            </div>
-                            <div class="feature">
-                                <span>💬</span>
-                                <p>对话式交互</p>
-                            </div>
-                            <div class="feature">
-                                <span>✨</span>
-                                <p>人性化解释</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                    <button class="example-btn" data-query="分析 demo.db 中的 users 表">
+                        <div class="example-icon">📊</div>
+                        <div class="example-text">分析数据库，提取关键信息</div>
+                    </button>
 
-                <!-- 输入区域 -->
-                <div class="input-area">
-                    <div class="input-wrapper">
-                        <textarea 
-                            id="userInput" 
-                            placeholder="用自然语言描述你想做的事情，比如：帮我计算一下、读取某个文件并分析、创建一个文件..."
-                            rows="1"
-                        ></textarea>
-                        <button id="sendBtn" class="send-btn" disabled>
-                            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg">
-                                <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-                            </svg>
-                        </button>
-                    </div>
-                    <div class="input-hints">
-                        <span>💡 试试：你能帮我做什么？ | 帮我算一下 | 读取文件并分析 | 当前是什么时间</span>
-                    </div>
+                    <button class="example-btn" data-query="搜索 2024 年最新的 AI 技术趋势">
+                        <div class="example-icon">🔬</div>
+                        <div class="example-text">网络搜索，整合最新信息</div>
+                    </button>
+
+                    <button class="example-btn" data-query="计算 (2^10 + 5!) * sqrt(144)">
+                        <div class="example-icon">🔢</div>
+                        <div class="example-text">复杂数学计算和公式求解</div>
+                    </button>
                 </div>
-            </main>
+            </div>
+        </div>
+
+        <!-- 输入区域 -->
+        <div class="input-area">
+            <div class="input-container">
+                <textarea 
+                    id="userInput" 
+                    placeholder="输入你的问题... (Shift+Enter 换行，Enter 发送)"
+                    rows="1"
+                ></textarea>
+                <button id="sendBtn" disabled>发送</button>
+            </div>
         </div>
     </div>
 
+    <!-- 引入 Skills 配置 -->
+    <script src="skills-config.js"></script>
+    <!-- 引入主应用逻辑 -->
     <script src="app.js"></script>
 </body>
 </html>
